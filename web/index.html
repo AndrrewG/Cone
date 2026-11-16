@@ -74,8 +74,22 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
   .conn-pill.online { color: #d1fae5; border-color: rgba(16,185,129,0.35); }
   .conn-pill.online .dot { background: var(--green); box-shadow: 0 0 7px var(--green); }
+  .conn-pill.locked { color: #fde68a; border-color: rgba(245,158,11,0.45); }
+  .conn-pill.locked .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
   .conn-pill.offline { color: #fecaca; border-color: rgba(239,68,68,0.45); }
   .conn-pill.offline .dot { background: var(--red); }
+
+  .btn-lock-hdr {
+    background: var(--card-alt);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 6px 9px;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-lock-hdr:active { transform: scale(0.95); }
 
   .btn-estop {
     background: linear-gradient(135deg, #ef4444, #b91c1c);
@@ -394,9 +408,58 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
     transform: translateX(-50%) translateY(80px);
     background: #1e293b; color: #f8fafc; border: 1px solid #475569;
     padding: 9px 15px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5); transition: transform 0.22s ease; z-index: 60;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); transition: transform 0.22s ease; z-index: 80;
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Login Overlay Modal & Security Controls */
+  .login-overlay {
+    position: fixed; inset: 0; z-index: 70;
+    background: rgba(9, 12, 18, 0.88);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .login-overlay.open { display: flex; }
+  .login-modal {
+    width: 100%; max-width: 390px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 20px 18px 18px;
+    box-shadow: 0 18px 48px rgba(0,0,0,0.65);
+  }
+  .login-hdr { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+  .login-hdr h2 { margin: 0; font-size: 17px; font-weight: 800; }
+  .login-hdr small { color: var(--muted); font-size: 11.5px; display: block; margin-top: 2px; }
+  .login-health {
+    font-size: 11.5px; font-weight: 600; padding: 6px 10px;
+    border-radius: 9px; margin-bottom: 12px;
+    background: var(--card-alt); color: var(--muted); border: 1px solid var(--border);
+  }
+  .login-health.online { color: #a7f3d0; border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.1); }
+  .login-health.offline { color: #fecaca; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.1); }
+  .login-err {
+    display: none; font-size: 12px; font-weight: 600;
+    padding: 8px 10px; border-radius: 9px; margin-bottom: 11px;
+    background: rgba(239,68,68,0.16); border: 1px solid rgba(239,68,68,0.5); color: #fecaca;
+  }
+  .login-err.lockout { background: rgba(245,158,11,0.18); border-color: var(--amber); color: #fde68a; }
+  .auth-field { margin-bottom: 11px; }
+  .auth-field label { display: block; font-size: 11.5px; font-weight: 700; color: #cbd5e1; margin-bottom: 5px; }
+  .auth-input-wrap { display: flex; gap: 6px; align-items: center; }
+  .auth-input {
+    width: 100%; padding: 11px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: #0d1016; color: var(--text);
+    font-size: 15px; font-weight: 600;
+  }
+  .auth-input:focus { outline: none; border-color: var(--cone); }
+  .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+  .chk-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; margin: 9px 0 11px; cursor: pointer; }
+  .chk-row input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--cone); }
 </style>
 </head>
 <body>
@@ -412,7 +475,8 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
     </div>
     <div class="hdr-right">
       <div id="connPill" class="conn-pill"><span class="dot"></span><span id="connText">Sync</span></div>
-      <button class="btn-estop" onclick="triggerEstop()">E-STOP</button>
+      <button id="btnLockQuick" class="btn-lock-hdr" type="button" onclick="ArseAuth.lockConeNow()">Lock</button>
+      <button class="btn-estop" type="button" onclick="triggerEstop()">E-STOP</button>
     </div>
   </header>
 
@@ -839,6 +903,57 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
         <div class="kv"><span class="kv-k">Yukon Temp / Free RAM</span><span class="kv-v" id="sysDiag">--</span></div>
       </div>
     </section>
+
+    <section id="securityCard" class="card">
+      <div class="card-title">
+        <span>Security &amp; Account</span>
+        <span>Operator: <b id="secOperatorName" style="color:var(--text);">admin</b></span>
+      </div>
+
+      <button id="btnLockCone" type="button" class="btn-sentry" style="border-color:var(--amber);color:#fde68a;background:rgba(245,158,11,0.16);" onclick="ArseAuth.lockConeNow()">
+        Lock Cone Now (Logout &amp; Disarm Idle Motors)
+      </button>
+
+      <details style="margin:6px 0 11px;border-top:1px solid var(--border);padding-top:10px;">
+        <summary style="font-size:12.5px;font-weight:700;color:#e2e8f0;cursor:pointer;">Update Username / Password</summary>
+        <form id="credUpdateForm" style="margin-top:10px;" onsubmit="return ArseAuth.submitCredentialUpdate(event)">
+          <div class="auth-field">
+            <label for="credUsername">Operator Username</label>
+            <input id="credUsername" class="auth-input" type="text" name="username" autocomplete="username" maxlength="32" required spellcheck="false" autocapitalize="none">
+          </div>
+          <div class="auth-field">
+            <label for="credNewPassword">New Password (8&ndash;128 chars)</label>
+            <input id="credNewPassword" class="auth-input" type="password" name="new_password" autocomplete="new-password" minlength="8" maxlength="128" required placeholder="Minimum 8 characters">
+          </div>
+          <div class="auth-field">
+            <label for="credConfirmPassword">Confirm New Password</label>
+            <input id="credConfirmPassword" class="auth-input" type="password" name="confirm_password" autocomplete="new-password" minlength="8" maxlength="128" required placeholder="Repeat new password">
+          </div>
+          <label class="chk-row">
+            <input id="credRotateBeacon" type="checkbox">
+            <span>Also rotate locked-phone beacon token</span>
+          </label>
+          <button id="btnSaveCredentials" type="submit" class="btn-primary" style="padding:11px 14px;font-size:13.5px;">
+            Update Username &amp; Password
+          </button>
+        </form>
+      </details>
+
+      <div style="border-top:1px solid var(--border);padding-top:10px;">
+        <div style="font-size:11.5px;font-weight:700;color:#cbd5e1;margin-bottom:5px;">
+          Locked-Phone Beacon Token (<code style="color:var(--cone);">beacon_only</code> scope)
+        </div>
+        <div class="auth-input-wrap" style="margin-bottom:7px;">
+          <input id="secBeaconDisplay" class="auth-input" type="text" readonly value="Sign in to view scoped beacon token" style="font-family:monospace;font-size:12px;padding:9px 10px;">
+          <button id="btnRevealBeacon" type="button" class="btn-secondary" style="padding:9px 11px;font-size:12px;" onclick="ArseAuth.toggleBeaconReveal()">Show</button>
+        </div>
+        <div class="seg-row">
+          <button type="button" class="chip-btn" onclick="ArseAuth.copyBeaconToken()">Copy Token</button>
+          <button type="button" class="chip-btn" onclick="ArseAuth.copyBeaconUrl()">Copy Beacon URL</button>
+          <button id="btnRotateBeacon" type="button" class="chip-btn" onclick="ArseAuth.rotateBeaconTokenNow()">Rotate Token</button>
+        </div>
+      </div>
+    </section>
   </div>
 
   <footer style="text-align:center;color:#64748b;font-size:11px;margin-top:12px;">
@@ -846,8 +961,42 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
   </footer>
 </div>
 
+<!-- Semantic Login Overlay Modal (Desktop & Android Password Manager Autofill) -->
+<div id="loginOverlay" class="login-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <div class="login-modal">
+    <div class="login-hdr">
+      <div class="cone-icon">&#9650;</div>
+      <div>
+        <h2 id="loginTitle">ARSE Mk.I Operator Sign-In</h2>
+        <small>Authenticated Control &amp; Telemetry Link</small>
+      </div>
+    </div>
+
+    <div id="loginHealthBadge" class="login-health">Checking Cone Wi-Fi link...</div>
+    <div id="loginErrorBox" class="login-err" role="alert"></div>
+
+    <form id="loginForm" method="post" action="/api/auth/login" onsubmit="return ArseAuth.handleLoginSubmit(event)">
+      <div class="auth-field">
+        <label for="loginUsername">Username</label>
+        <input id="loginUsername" class="auth-input" type="text" name="username" autocomplete="username" value="admin" required spellcheck="false" autocapitalize="none">
+      </div>
+      <div class="auth-field">
+        <label for="loginPassword">Password</label>
+        <div class="auth-input-wrap">
+          <input id="loginPassword" class="auth-input" type="password" name="password" autocomplete="current-password" required placeholder="Operator password">
+          <button id="btnToggleLoginPw" type="button" class="btn-secondary" style="padding:11px 11px;font-size:12px;" onclick="ArseAuth.toggleLoginPasswordVisibility()">Show</button>
+        </div>
+      </div>
+      <button id="loginSubmitBtn" type="submit" class="btn-primary" style="margin-top:4px;">
+        Sign In to Operator Terminal
+      </button>
+    </form>
+  </div>
+</div>
+
 <div id="toast" class="toast">Saved</div>
 
+<script src="/auth.js"></script>
 <script>
   // ---------------- UI Helpers & Tab Switching ----------------
   let latestTelemetry = null;
@@ -874,6 +1023,9 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
       ensureSatelliteMap();
       if (satMap) setTimeout(() => { satMap.invalidateSize(); updateSatelliteMap(); }, 60);
     }
+    if (id === 'sensors' && window.ArseAuth) {
+      ArseAuth.refreshSecurityCard();
+    }
   }
 
   function showToast(msg) {
@@ -884,11 +1036,14 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
   }
 
   async function apiPost(url, body) {
-    const r = await fetch(url, {
+    const r = await apiFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {})
     });
+    if (r.status === 401) {
+      return { ok: false, error: 'Authentication required' };
+    }
     return r.json();
   }
 
@@ -937,11 +1092,11 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
     // Convert screen (joyX right, joyY down) -> robot body (+vx fwd, +vy left, +omega CCW)
     const vx = -joyY;
     const vy = -joyX;
-    fetch('/api/drive/cmd', {
+    apiFetch('/api/drive/cmd', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ vx: +vx.toFixed(2), vy: +vy.toFixed(2), omega: spinCmd })
-    }).then(r => r.json()).then(res => {
+    }).then(r => r.ok ? r.json() : null).then(res => {
       if (res && res.w) renderWheelBars(res.w);
     }).catch(() => {});
   }
@@ -1026,11 +1181,11 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
 
   function sendBenchCmd(spd, durMs) {
     document.getElementById('benchSpdLbl').textContent = 'Output: ' + Math.round(spd * 100) + '%';
-    fetch('/api/drive/bench', {
+    apiFetch('/api/drive/bench', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channel: benchCh, speed: +spd.toFixed(2), duration_ms: durMs || 0 })
-    }).then(r => r.json()).then(res => {
+    }).then(r => r.ok ? r.json() : null).then(res => {
       if (res && res.w) renderWheelBars(res.w);
       if (res && !res.armed && Math.abs(spd) > 0.01) {
         showToast('Dry-Run: Tap Arm above to spin physical motor');
@@ -1847,10 +2002,24 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
   }
 
   async function pollTelemetry() {
+    if (window.ArseAuth && !ArseAuth.hasSession()) {
+      const pill = document.getElementById('connPill');
+      const connText = document.getElementById('connText');
+      pill.className = 'conn-pill locked';
+      connText.textContent = 'Locked';
+      return;
+    }
     const pill = document.getElementById('connPill');
     const connText = document.getElementById('connText');
+    let authRejected = false;
     try {
-      const resp = await fetch('/api/telemetry', { cache: 'no-store' });
+      const resp = await apiFetch('/api/telemetry', { cache: 'no-store' });
+      if (resp.status === 401) {
+        authRejected = true;
+        pill.className = 'conn-pill locked';
+        connText.textContent = 'Locked';
+        return;
+      }
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const d = await resp.json();
       latestTelemetry = d;
@@ -2050,12 +2219,39 @@ Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
       connText.textContent = 'Offline';
     } finally {
       if (pollTimer) clearTimeout(pollTimer);
-      const lowPwr = latestTelemetry && latestTelemetry.sentry && latestTelemetry.sentry.low_power_active;
-      pollTimer = setTimeout(pollTelemetry, lowPwr ? 1500 : 500);
+      if (!authRejected && (!window.ArseAuth || ArseAuth.hasSession())) {
+        const lowPwr = latestTelemetry && latestTelemetry.sentry && latestTelemetry.sentry.low_power_active;
+        pollTimer = setTimeout(pollTelemetry, lowPwr ? 1500 : 500);
+      }
     }
   }
 
-  pollTelemetry();
+  window.onArseAuthLocked = function () {
+    joyActive = false; spinCmd = 0; joyX = 0; joyY = 0;
+    if (driveTimer) { clearInterval(driveTimer); driveTimer = null; }
+    if (benchHoldTimer) { clearInterval(benchHoldTimer); benchHoldTimer = null; }
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    if (benchSlider) benchSlider.value = 0;
+    const bLbl = document.getElementById('benchSpdLbl');
+    if (bLbl) bLbl.textContent = 'Output: 0%';
+    drawJoystick();
+    const pill = document.getElementById('connPill');
+    const connText = document.getElementById('connText');
+    if (pill) pill.className = 'conn-pill locked';
+    if (connText) connText.textContent = 'Locked';
+  };
+
+  window.onArseAuthUnlocked = function () {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTelemetry();
+  };
+
+  if (window.ArseAuth) {
+    ArseAuth.initAuth();
+    if (ArseAuth.hasSession()) pollTelemetry();
+  } else {
+    pollTelemetry();
+  }
 </script>
 </body>
 </html>

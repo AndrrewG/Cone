@@ -453,6 +453,8 @@ class TelemetryServer:
             auth = self._get_auth()
             if auth is None:
                 return {"ok": False, "error": "Auth manager unavailable", "_status": (503, "Service Unavailable")}
+            if data.get("rotate_beacon_only") is True:
+                return auth.rotate_beacon_token()
             new_user = data["new_username"] if ("new_username" in data and data["new_username"] is not None) else data.get("username", "")
             new_pw = data["new_password"] if ("new_password" in data and data["new_password"] is not None) else data.get("password", "")
             try:

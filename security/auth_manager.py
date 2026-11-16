@@ -588,6 +588,22 @@ class AuthManager:
         gc.collect()
         return {"ok": True, "username": self.username, "beacon_rotated": bool(rotate_beacon)}
 
+    def rotate_beacon_token(self):
+        new_beacon = _urlsafe_token(self.TOKEN_BYTES)
+        disk_dict = self._read_existing_dict()
+        if disk_dict is not None:
+            self._extra_secrets = self._extract_extra_keys(disk_dict)
+        prev_beacon = self._beacon_token
+        self._beacon_token = new_beacon
+        try:
+            self._write_secrets_atomic(self._extra_secrets)
+        except Exception:
+            self._beacon_token = prev_beacon
+            raise
+        self._trigger_ack_sound()
+        gc.collect()
+        return {"ok": True, "username": self.username, "beacon_rotated": True, "beacon_token": self._beacon_token}
+
     def get_beacon_token(self):
         return self._beacon_token
 

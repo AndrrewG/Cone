@@ -54,16 +54,16 @@ try {
         $null = $serial.ReadExisting()
     }
 
-    # Free any previous main.py allocations before syncing files
+    # Disarm any active I2S Python IRQ & delete user globals (preserving __builtins__)
+    $null = Invoke-RawRepl "try:`n app.audio._i2s.irq(None)`nexcept Exception:`n pass`nfor _k in ('app','ConeApp','AuthManager','TelemetryServer','WaypointNavigator','ConeAudio','SentryGuard','ICM20948','BatteryMonitor','DriveController','ConeLights','PA1010D','ConeWiFi'):`n globals().pop(_k, None)`n" 400
+
     if (-not $OnlyFile) {
-        $cleanupCode = "import os, sys, gc`ntry:`n os.remove('main.py')`nexcept OSError:`n pass`ngc.collect()`n"
+        $cleanupCode = "import os, gc`ntry:`n os.remove('main.py')`nexcept OSError:`n pass`ngc.collect()`n"
         $null = Invoke-RawRepl $cleanupCode 600
     }
 
     # Clear cached user modules & run GC WITHOUT Ctrl-D VM soft-reset
-    # (on Yukon Wireless, RP2040 VM soft-reset calls mp_machine_i2s_deinit(),
-    # which conflicts with CYW43 PIO SPI DMA if I2S was active)
-    $mkdirCode = "import os, sys, ubinascii, gc`nfor k in list(sys.modules.keys()):`n if k.startswith('drivers') or k.startswith('security') or k in ('config', 'telemetry_server', 'main'):`n  del sys.modules[k]`ngc.collect()`nfor d in ('drivers', 'web', 'security'):`n try:`n  os.mkdir(d)`n except OSError:`n  pass`ngc.collect()`n"
+    $mkdirCode = "import os, sys, ubinascii, gc`nfor k in ('main','telemetry_server','config','security.auth_manager','security','drivers.navigator','drivers.sentry','drivers.icm20948','drivers.battery','drivers.pa1010d'):`n sys.modules.pop(k, None)`ngc.collect()`nfor d in ('drivers', 'web', 'security'):`n try:`n  os.mkdir(d)`n except OSError:`n  pass`ngc.collect()`n"
     $null = Invoke-RawRepl $mkdirCode 800
 
     $filesToSync = @(
@@ -83,6 +83,7 @@ try {
         @{ Local = "drivers\navigator.py";         Remote = "drivers/navigator.py" },
         @{ Local = "drivers\sentry.py";            Remote = "drivers/sentry.py" },
         @{ Local = "telemetry_server.py";          Remote = "telemetry_server.py" },
+        @{ Local = "web\auth.js";                  Remote = "web/auth.js" },
         @{ Local = "web\index.html";               Remote = "web/index.html" },
         @{ Local = "hardware_test.py";             Remote = "hardware_test.py" },
         @{ Local = "motor_test.py";                Remote = "motor_test.py" },

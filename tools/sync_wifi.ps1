@@ -36,6 +36,7 @@ $filesToSync = @(
     @{ Local = "security\__init__.py";         Remote = "security/__init__.py" },
     @{ Local = "security\auth_manager.py";     Remote = "security/auth_manager.py" },
     @{ Local = "telemetry_server.py";          Remote = "telemetry_server.py" },
+    @{ Local = "web\auth.js";                  Remote = "web/auth.js" },
     @{ Local = "web\index.html";               Remote = "web/index.html" },
     @{ Local = "main.py";                      Remote = "main.py" }
 )

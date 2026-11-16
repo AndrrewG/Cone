@@ -66,7 +66,7 @@
   - Enforce `"beacon_only"` least-privilege scope: permit **only** `POST /api/follow/beacon` and `POST /api/follow/stamp`, returning `HTTP 403 Forbidden` on every other endpoint; ensure login never auto-arms drive motors.
   - **Verification:** Desktop `pytest` suite (`tests/test_auth_middleware.py`) testing unauthenticated `401` rejections, `429` lockout headers, `"beacon_only"` `403` isolation, logout disarming, and OTA route protection.
 
-- [ ] **Task 1.3 — Browser Login Modal, Autofill & Credential Controls (`web/index.html` & `web/auth.js`):**
+- [x] **Task 1.3 — Browser Login Modal, Autofill & Credential Controls ([index.html](web/index.html) & [auth.js](web/auth.js)):**
   - Add a semantic `<form>` **Login Overlay Modal** (`<input name="username" autocomplete="username">` and `<input type="password" name="password" autocomplete="current-password">`) compatible with desktop browsers and Android Google Password Manager fingerprint autofill over HTTP.
   - Implement `apiFetch(url, options)` in `web/auth.js` storing `session_token` in `sessionStorage`, injecting `Authorization: Bearer <session_token>`, and re-opening the login modal automatically on `HTTP 401`.
   - Add a **Security & Account** card in the Web UI with **Lock Cone Now (Logout)**, **Update Username / Password**, and **Copy / Rotate Locked-Phone Beacon Token** controls.
