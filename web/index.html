@@ -1,0 +1,2061 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+ARSE — Autonomous Road Systems Engineering
+Proprietary & Confidential — Division of Conical Mobility & Traffic Robotics
+--------------------------------------------------------------------------------
+Module:      web/index.html
+Platform:    ARSE Mk.I Autonomous Traffic Cone (Pimoroni Yukon RP2040)
+Description: Mobile Operator Terminal — Holonomic Drive, Waypoint Missions,
+             Coulomb Battery BMS, Lighting, Audio & 9DoF Compass Calibration.
+Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
+================================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1116">
+<title>ARSE Mk.I Operator Terminal</title>
+<style>
+  :root {
+    --bg: #0e1015;
+    --card: #171b23;
+    --card-alt: #1f2531;
+    --border: #2b3344;
+    --text: #f3f5f9;
+    --muted: #93a0b8;
+    --cone: #ff6b00;
+    --amber: #f59e0b;
+    --green: #10b981;
+    --red: #ef4444;
+    --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    padding: 10px 12px 28px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.35;
+    overscroll-behavior-y: contain;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; }
+
+  /* Top Bar */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .cone-icon {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #ff7b1a, #de4d00);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800;
+    box-shadow: 0 2px 8px rgba(255,107,0,0.3);
+  }
+  .brand h1 { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: -0.2px; }
+  .brand small { color: var(--muted); font-size: 11px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .hdr-right { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+  .conn-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 9px; border-radius: 999px;
+    background: var(--card); border: 1px solid var(--border);
+    font-size: 11.5px; font-weight: 700; color: var(--muted);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .conn-pill.online { color: #d1fae5; border-color: rgba(16,185,129,0.35); }
+  .conn-pill.online .dot { background: var(--green); box-shadow: 0 0 7px var(--green); }
+  .conn-pill.offline { color: #fecaca; border-color: rgba(239,68,68,0.45); }
+  .conn-pill.offline .dot { background: var(--red); }
+
+  .btn-estop {
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
+    color: #fff;
+    border: 1px solid #f87171;
+    border-radius: 9px;
+    padding: 6px 11px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(239,68,68,0.35);
+  }
+  .btn-estop:active { transform: scale(0.95); }
+
+  /* Quick Status Strip */
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .s-chip {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 7px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .s-chip .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; display: block; }
+  .s-chip .val { font-size: 13px; font-weight: 700; }
+
+  /* Navigation Tabs */
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+    background: #12151c;
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-radius: 9px;
+    padding: 9px 4px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .tab-btn.active {
+    background: var(--card-alt);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* Banners */
+  .banner {
+    display: none;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .banner.show { display: flex; }
+  .banner-swap { background: rgba(245,158,11,0.14); border: 1px solid rgba(245,158,11,0.45); color: #fde68a; }
+  .banner-alert { background: rgba(239,68,68,0.18); border: 1px solid rgba(239,68,68,0.55); color: #fecaca; font-weight: 700; }
+  @keyframes policeFlash {
+    0%, 49% { background: rgba(239,68,68,0.28); border-color: #ef4444; box-shadow: 0 0 14px rgba(239,68,68,0.35); }
+    50%, 100% { background: rgba(59,130,246,0.28); border-color: #3b82f6; box-shadow: 0 0 14px rgba(59,130,246,0.35); }
+  }
+  .banner-police {
+    color: #fff;
+    font-weight: 800;
+    border: 1.5px solid #ef4444;
+    animation: policeFlash 0.55s infinite;
+  }
+  .sentry-badge {
+    font-size: 10.5px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.4px;
+    background: var(--card-alt);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .sentry-badge.arming { background: rgba(245,158,11,0.18); border-color: var(--amber); color: #fde68a; }
+  .sentry-badge.watch { background: rgba(59,130,246,0.18); border-color: var(--blue); color: #bfdbfe; }
+  .sentry-badge.alarm { color: #fff; animation: policeFlash 0.55s infinite; }
+  .btn-sentry {
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 10px;
+    border: 1px solid #3b82f6;
+    background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(30,64,175,0.28));
+    color: #dbeafe;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 9px;
+  }
+  .btn-sentry.active {
+    background: rgba(16,185,129,0.2);
+    border-color: var(--green);
+    color: #a7f3d0;
+  }
+  .btn-sentry.alarm {
+    color: #fff;
+    font-weight: 800;
+    animation: policeFlash 0.55s infinite;
+  }
+  .btn-sentry:active { transform: scale(0.98); }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    padding: 14px;
+    margin-bottom: 11px;
+  }
+  .card-title {
+    margin: 0 0 10px;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* Buttons & Segmented Controls */
+  .seg-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .chip-btn {
+    flex: 1 1 auto;
+    padding: 9px 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--card-alt);
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+  }
+  .chip-btn.active {
+    background: rgba(255,107,0,0.2);
+    border-color: var(--cone);
+    color: #ffedd5;
+  }
+  .chip-btn.armed-on {
+    background: rgba(16,185,129,0.2);
+    border-color: var(--green);
+    color: #a7f3d0;
+  }
+  .chip-btn:active { transform: scale(0.97); }
+
+  /* Virtual Holonomic Pad */
+  .joy-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 8px 0 6px;
+  }
+  #joyCanvas {
+    width: 230px;
+    height: 230px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #222938 0%, #12161f 75%);
+    border: 2px solid var(--border);
+    touch-action: none;
+    user-select: none;
+  }
+  .spin-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 10px;
+  }
+  .spin-btn {
+    flex: 1;
+    padding: 12px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card-alt);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    touch-action: none;
+    user-select: none;
+    cursor: pointer;
+  }
+  .spin-btn.pressing {
+    background: rgba(255,107,0,0.28);
+    border-color: var(--cone);
+  }
+
+  /* Wheel Bars */
+  .wheel-bars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 10px; }
+  .w-box {
+    background: var(--card-alt);
+    border-radius: 9px;
+    padding: 7px 8px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .w-hdr { display: flex; justify-content: space-between; color: var(--muted); margin-bottom: 4px; }
+  .w-track { height: 7px; background: #0d1016; border-radius: 4px; position: relative; overflow: hidden; }
+  .w-fill { position: absolute; top: 0; bottom: 0; background: var(--cone); width: 0%; left: 50%; }
+
+  /* Sliders */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .slider-row input[type=range] { flex: 1; accent-color: var(--cone); }
+
+  /* Radar Canvas */
+  .radar-wrap { display: flex; flex-direction: column; align-items: center; }
+  #radarCanvas {
+    width: 100%;
+    max-width: 300px;
+    aspect-ratio: 1 / 1;
+    background: #0b0e14;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    touch-action: manipulation;
+  }
+  .wp-list {
+    max-height: 150px;
+    overflow-y: auto;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .wp-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--card-alt);
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .wp-item.current { border: 1px solid var(--cone); }
+
+  /* Battery Hero & Metrics */
+  .soc-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .soc-big { font-size: 42px; font-weight: 800; letter-spacing: -1.5px; font-variant-numeric: tabular-nums; line-height: 1; }
+  .soc-big span { font-size: 20px; color: var(--muted); margin-left: 2px; }
+  .mah-summary { text-align: right; font-variant-numeric: tabular-nums; }
+  .mah-rem { font-size: 15px; font-weight: 700; }
+  .mah-used { font-size: 11.5px; color: var(--muted); }
+  .bar-track { width: 100%; height: 16px; background: #0b0d12; border-radius: 9px; padding: 3px; border: 1px solid var(--border); margin-bottom: 10px; }
+  .bar-fill { height: 100%; width: 0%; border-radius: 6px; background: var(--green); transition: width 0.3s ease; }
+  .seed-badge { display: inline-block; font-size: 11px; padding: 4px 8px; border-radius: 6px; background: var(--card-alt); color: var(--muted); margin-bottom: 12px; }
+  .seed-badge.verified { background: rgba(16,185,129,0.13); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .metric { background: var(--card-alt); border-radius: 10px; padding: 9px 11px; }
+  .metric-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .metric-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .metric-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .btn-primary {
+    width: 100%; padding: 13px 14px; border: none; border-radius: 11px;
+    background: linear-gradient(135deg, #ff7a18, #e55300); color: #fff;
+    font-size: 14.5px; font-weight: 700; cursor: pointer;
+  }
+  .btn-primary.confirming { background: linear-gradient(135deg, #10b981, #059669); }
+  .field-row { display: flex; gap: 7px; align-items: center; margin-top: 7px; }
+  .field-wrap { flex: 1; position: relative; }
+  .field-wrap input {
+    width: 100%; padding: 10px 44px 10px 11px; border-radius: 9px;
+    border: 1px solid var(--border); background: #0d1016; color: var(--text);
+    font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .field-unit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11.5px; color: var(--muted); }
+  .btn-secondary {
+    padding: 10px 13px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--card-alt); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .btn-xs { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 7px; padding: 5px 9px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+
+  .kv-list { display: flex; flex-direction: column; gap: 7px; }
+  .kv { display: flex; justify-content: space-between; font-size: 13px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .kv:last-child { border-bottom: none; padding-bottom: 0; }
+  .kv-k { color: var(--muted); }
+  .kv-v { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .toast {
+    position: fixed; bottom: 16px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: #1e293b; color: #f8fafc; border: 1px solid #475569;
+    padding: 9px 15px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); transition: transform 0.22s ease; z-index: 60;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Persistent Header & E-STOP -->
+  <header>
+    <div class="brand">
+      <div class="cone-icon">&#9650;</div>
+      <div>
+        <h1>ARSE Mk.I Cone</h1>
+        <small id="wifiInfo">Autonomous Road Systems Eng.</small>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div id="connPill" class="conn-pill"><span class="dot"></span><span id="connText">Sync</span></div>
+      <button class="btn-estop" onclick="triggerEstop()">E-STOP</button>
+    </div>
+  </header>
+
+  <!-- Live Quick Strip -->
+  <div class="status-strip">
+    <div class="s-chip"><span class="lbl">Battery</span><span class="val" id="qsBat">--%</span></div>
+    <div class="s-chip"><span class="lbl">Heading</span><span class="val" id="qsHdg">--&deg;</span></div>
+    <div class="s-chip"><span class="lbl">GNSS</span><span class="val" id="qsGps">--</span></div>
+    <div class="s-chip"><span class="lbl">Drive</span><span class="val" id="qsDrive">SAFE</span></div>
+  </div>
+
+  <!-- Safety & Swap Banners -->
+  <div id="sentryAlarmBanner" class="banner banner-police">
+    <span id="sentryBannerTxt">POLICE SENTRY ALARM — CONE TAMPER DETECTED!</span>
+    <button class="btn-xs" style="background:rgba(0,0,0,0.45);border:1px solid #fff;" onclick="disarmSentryNow()">Disarm</button>
+  </div>
+  <div id="tiltBanner" class="banner banner-alert">
+    <span>TIP-OVER / TILT FAULT — Traction Motors Disarmed!</span>
+  </div>
+  <div id="alertBanner" class="banner banner-alert">
+    <span id="alertText">Low Battery Warning!</span>
+  </div>
+  <div id="swapBanner" class="banner banner-swap">
+    <span>Pack &ge;12.4V resting — swapped in a freshly charged battery?</span>
+    <button class="btn-xs" onclick="dismissHint()">Dismiss</button>
+  </div>
+
+  <!-- Tab Switcher -->
+  <nav class="tabs">
+    <button class="tab-btn active" onclick="switchTab('drive', this)">Drive</button>
+    <button class="tab-btn" onclick="switchTab('mission', this)">Mission</button>
+    <button class="tab-btn" onclick="switchTab('battery', this)">Battery</button>
+    <button class="tab-btn" onclick="switchTab('sensors', this)">Sensors</button>
+  </nav>
+
+  <!-- ==================== TAB 1: DRIVE, LEDS & AUDIO ==================== -->
+  <div id="tab-drive" class="tab-pane active">
+    <section class="card">
+      <div class="card-title">
+        <span>Motor Arming Interlock</span>
+        <span id="driveSrcTag">Idle</span>
+      </div>
+      <div class="seg-row">
+        <button id="btnArm" class="chip-btn" onclick="toggleArmed()">Disarmed (Bench Dry-Run — Tap to Arm)</button>
+      </div>
+    </section>
+
+    <!-- Anti-Theft IMU Sentry Mode ("Cone-Nicking Deterrence") -->
+    <section class="card">
+      <div class="card-title">
+        <span>Anti-Theft Sentry Mode</span>
+        <span id="sentryBadge" class="sentry-badge">DISARMED</span>
+      </div>
+
+      <button id="btnSentry" class="btn-sentry" onclick="toggleSentry()">
+        Arm Sentry Mode (Low-Power Watch)
+      </button>
+
+      <div class="seg-row" style="margin-bottom:9px;">
+        <button class="chip-btn" id="sen-high" onclick="setSentrySens('high')">Sens: High</button>
+        <button class="chip-btn active" id="sen-medium" onclick="setSentrySens('medium')">Sens: Medium</button>
+        <button class="chip-btn" id="sen-low" onclick="setSentrySens('low')">Sens: Low (Windy)</button>
+      </div>
+
+      <div class="grid-2">
+        <div class="metric">
+          <div class="metric-label">IMU Delta / Bus</div>
+          <div class="metric-val" id="senMotion" style="font-size:15px;">0.00g / 0&deg;/s</div>
+          <div class="metric-sub" id="senPower">12V Rail: Active</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Tamper Deterrence</div>
+          <div class="metric-val" id="senCount" style="font-size:15px;">0 Alerts</div>
+          <div class="metric-sub" id="senLast">Standby</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Single-Motor Bench Control & Live Current Feedback -->
+    <section class="card">
+      <div class="card-title">
+        <span>Single-Motor Bench &amp; Current</span>
+        <span id="benchSpdLbl">Output: 0%</span>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div class="metric">
+          <div class="metric-label">Motor e-Fuse Current</div>
+          <div class="metric-val" id="bmEfuse" style="color:var(--cone);">0.000 A</div>
+          <div class="metric-sub" id="bmPeak">Peak: 0.000 A <u style="cursor:pointer;" onclick="peakMotorAmps=0">reset</u></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Pack V &amp; Power</div>
+          <div class="metric-val" id="bmVoltPwr">-- V</div>
+          <div class="metric-sub" id="bmDrvTemp">DRV8424: -- &deg;C</div>
+        </div>
+      </div>
+
+      <div class="seg-row" style="margin-bottom:8px;">
+        <button class="chip-btn active" id="bch-1" onclick="selectBenchCh(1)">M1 (S1.1)</button>
+        <button class="chip-btn" id="bch-2" onclick="selectBenchCh(2)">M2 (S1.2)</button>
+        <button class="chip-btn" id="bch-3" onclick="selectBenchCh(3)">M3 (S2.1)</button>
+        <button class="chip-btn" id="bch-0" onclick="selectBenchCh(0)">All</button>
+      </div>
+
+      <div class="slider-row" style="margin:10px 0;">
+        <span>-100%</span>
+        <input id="benchSlider" type="range" min="-100" max="100" step="5" value="0" style="height:28px;touch-action:none;">
+        <span>+100%</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:8px;">
+        Hold &amp; drag slider (auto-stops on release) or tap a 2s ramped test pulse:
+      </div>
+
+      <div class="seg-row">
+        <button class="chip-btn" onclick="benchPulse(-0.40)">-40% (2s)</button>
+        <button class="chip-btn" onclick="benchPulse(-0.25)">-25% (2s)</button>
+        <button class="chip-btn" onclick="benchPulse(0)">STOP</button>
+        <button class="chip-btn" onclick="benchPulse(0.25)">+25% (2s)</button>
+        <button class="chip-btn" onclick="benchPulse(0.40)">+40% (2s)</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>3-Wheel Holonomic Drive Pad</span>
+        <span>Omni Kinematics</span>
+      </div>
+
+      <div class="seg-row" style="margin-bottom:8px;">
+        <button class="chip-btn active" id="spd-indoor" onclick="setSpeedMode('indoor')">Indoor 35%</button>
+        <button class="chip-btn" id="spd-normal" onclick="setSpeedMode('normal')">Normal 65%</button>
+        <button class="chip-btn" id="spd-turbo" onclick="setSpeedMode('turbo')">Turbo 100%</button>
+      </div>
+
+      <div class="joy-wrap">
+        <canvas id="joyCanvas" width="230" height="230"></canvas>
+        <div class="spin-row">
+          <button id="btnSpinCCW" class="spin-btn">&#8634; Spin Left</button>
+          <button id="btnSpinCW" class="spin-btn">Spin Right &#8635;</button>
+        </div>
+      </div>
+
+      <div class="wheel-bars">
+        <div class="w-box">
+          <div class="w-hdr"><span>W1 FR</span><span id="w1Txt">0%</span></div>
+          <div class="w-track"><div id="w1Bar" class="w-fill"></div></div>
+        </div>
+        <div class="w-box">
+          <div class="w-hdr"><span>W2 FL</span><span id="w2Txt">0%</span></div>
+          <div class="w-track"><div id="w2Bar" class="w-fill"></div></div>
+        </div>
+        <div class="w-box">
+          <div class="w-hdr"><span>W3 Rear</span><span id="w3Txt">0%</span></div>
+          <div class="w-track"><div id="w3Bar" class="w-fill"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>Conical LED Array (Slot 4)</span>
+        <span id="ledPgood">--</span>
+      </div>
+      <div class="seg-row">
+        <button class="chip-btn active" id="led-off" onclick="setLights('off')">Off</button>
+        <button class="chip-btn" id="led-beacon" onclick="setLights('beacon')">Beacon</button>
+        <button class="chip-btn" id="led-strobe" onclick="setLights('strobe')">Strobe</button>
+        <button class="chip-btn" id="led-solid" onclick="setLights('solid')">Solid</button>
+        <button class="chip-btn" id="led-pulse" onclick="setLights('pulse')">Pulse</button>
+        <button class="chip-btn" id="led-police" onclick="setLights('police')">Police</button>
+        <button class="chip-btn" id="led-rainbow" onclick="setLights('rainbow')">Rainbow</button>
+      </div>
+      <div class="slider-row">
+        <span>Brightness</span>
+        <input id="ledBri" type="range" min="5" max="100" step="5" value="40" onchange="setLightBrightness(this.value)">
+        <span id="ledBriTxt">40%</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>Acoustic Annunciator (Slot 6)</span>
+        <span id="audioState">Standby</span>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:9px;">
+        <button class="btn-primary" style="padding:13px 10px;font-size:16px;letter-spacing:0.6px;" onclick="playAudio('meep')">
+          MEEP!
+        </button>
+        <button class="chip-btn" style="font-weight:700;border-color:var(--cone);color:#fff;" onclick="playAudio('meep_meep')">
+          Meep Meep!
+        </button>
+      </div>
+      <div class="seg-row">
+        <button class="chip-btn" onclick="playAudio('chime')">Chime</button>
+        <button class="chip-btn" onclick="playAudio('horn')">Horn</button>
+        <button class="chip-btn" onclick="playAudio('siren')">Siren</button>
+        <button class="chip-btn" onclick="playAudio('chirp')">Chirp</button>
+        <button class="chip-btn" onclick="playAudio('beep')">Rev Beep</button>
+        <button class="chip-btn" onclick="playAudio('stop')">Stop</button>
+      </div>
+      <div class="slider-row">
+        <span>Vol (Log)</span>
+        <input id="audVol" type="range" min="0" max="100" step="1" value="35" oninput="previewAudioVolume(this.value)" onchange="setAudioVolume(this.value)">
+        <span id="audVolTxt" style="min-width:42px;text-align:right;">35%</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ==================== TAB 2: AUTONOMOUS MISSIONS ==================== -->
+  <div id="tab-mission" class="tab-pane">
+    <section class="card">
+      <div class="card-title">
+        <span>GNSS Satellite &amp; Radar Guidance</span>
+        <span id="navStateTag">IDLE</span>
+      </div>
+
+      <div class="seg-row" style="margin-bottom:8px;">
+        <button id="btnViewSat" class="chip-btn active" onclick="setMapView('sat')">Satellite View</button>
+        <button id="btnViewRadar" class="chip-btn" onclick="setMapView('radar')">Offline Radar</button>
+        <button class="chip-btn" onclick="centerSatOnCone(true)">Center Cone</button>
+      </div>
+
+      <div id="satMapWrap" style="position:relative;width:100%;height:305px;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:#0b1120;">
+        <div id="satMap" style="width:100%;height:100%;"></div>
+        <div id="satStatusOverlay" style="position:absolute;bottom:6px;left:6px;z-index:500;background:rgba(14,16,21,0.82);color:#cbd5e1;font-size:10.5px;padding:3px 7px;border-radius:6px;pointer-events:none;">
+          Loading client-side satellite imagery...
+        </div>
+      </div>
+
+      <div id="radarWrapBox" class="radar-wrap" style="display:none;">
+        <canvas id="radarCanvas" width="300" height="300"></canvas>
+      </div>
+
+      <div class="seg-row" style="margin-top:9px;">
+        <button id="btnMapTap" class="chip-btn" onclick="toggleMapTap()">Tap Map to Plot: OFF</button>
+        <button class="chip-btn" onclick="navAct('drop_here')">+ Drop Cone GPS</button>
+        <button class="chip-btn" onclick="navAct('set_home')">Set Home</button>
+      </div>
+
+      <div class="grid-2" style="margin-top:9px;">
+        <div class="metric">
+          <div class="metric-label">Active Target</div>
+          <div class="metric-val" id="navTgt">--</div>
+          <div class="metric-sub" id="navReason">Ready</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Range &amp; Bearing</div>
+          <div class="metric-val" id="navDist">-- m</div>
+          <div class="metric-sub" id="navBrg">Brg: --&deg;</div>
+        </div>
+      </div>
+
+      <div class="seg-row" style="margin-top:9px;">
+        <button class="chip-btn armed-on" onclick="navAct('start')">&#9654; Start</button>
+        <button class="chip-btn" onclick="navAct('pause')">&#10074;&#10074; Pause</button>
+        <button class="chip-btn" onclick="navAct('stop')">&#9632; Stop</button>
+        <button class="chip-btn" onclick="navAct('rth')">Home (RTH)</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span><span id="missionNameLbl">Mission Queue</span> (<span id="wpCount">0</span>)</span>
+        <button class="btn-xs" onclick="navAct('clear')">Clear All</button>
+      </div>
+
+      <div class="seg-row">
+        <button class="chip-btn active" id="sty-glide" onclick="setNavConfig({drive_style:'glide'})">Style: Glide</button>
+        <button class="chip-btn" id="sty-turn" onclick="setNavConfig({drive_style:'turn'})">Style: Turn &amp; Drive</button>
+        <button class="chip-btn" id="btnLoop" onclick="toggleLoop()">Loop: OFF</button>
+      </div>
+
+      <div id="wpList" class="wp-list"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>AI Mission Transfer (arse-mission/v1)</span>
+        <button class="btn-xs" onclick="copyConeGpsForAi()">Copy GPS for AI</button>
+      </div>
+
+      <input type="file" id="missionFileInput" accept=".json,application/json,.txt" style="display:none;" onchange="handleMissionFileSelect(event)">
+
+      <div class="seg-row" style="margin-bottom:8px;">
+        <button class="chip-btn" style="border-color:var(--cone);color:#fff;font-weight:700;" onclick="document.getElementById('missionFileInput').click()">
+          Upload .JSON File
+        </button>
+        <button class="chip-btn" onclick="toggleJsonDrawer()">
+          Paste / Edit JSON
+        </button>
+        <button class="chip-btn" onclick="exportCurrentMission()">
+          Export JSON
+        </button>
+      </div>
+
+      <div id="jsonDrawer" style="display:none;margin-top:8px;">
+        <textarea id="missionJsonBox" rows="7" spellcheck="false"
+          placeholder='Paste Gemini mission JSON here (raw JSON or ```json code block)...'
+          style="width:100%;box-sizing:border-box;background:#0b1120;color:#e2e8f0;border:1px solid #334155;border-radius:10px;padding:9px;font-family:monospace;font-size:11.5px;resize:vertical;"></textarea>
+        <div class="seg-row" style="margin-top:8px;">
+          <button class="chip-btn" onclick="pasteClipboardIntoBox()">Paste Clipboard</button>
+          <button class="btn-primary" style="flex:1.5;padding:9px 12px;font-size:13px;" onclick="submitMissionJsonBox()">
+            Send Mission to Cone
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ==================== TAB 3: BATTERY COULOMB BMS ==================== -->
+  <div id="tab-battery" class="tab-pane">
+    <section class="card">
+      <div class="card-title">
+        <span>3S LiPo Coulomb Counter</span>
+        <span id="cellTag">-- V / cell</span>
+      </div>
+
+      <div class="soc-row">
+        <div class="soc-big" id="socVal">--<span>%</span></div>
+        <div class="mah-summary">
+          <div class="mah-rem"><span id="remMah">--</span> / <span id="capMah">--</span> mAh</div>
+          <div class="mah-used">Counted out: <span id="usedMah">0.0</span> mAh</div>
+        </div>
+      </div>
+
+      <div class="bar-track"><div id="socBar" class="bar-fill"></div></div>
+      <div id="seedBadge" class="seed-badge">Initializing Coulomb counter...</div>
+
+      <div class="grid-2">
+        <div class="metric">
+          <div class="metric-label">Pack Voltage</div>
+          <div class="metric-val" id="voltVal">-- V</div>
+          <div class="metric-sub" id="railState">Cutoff: 9.90 V</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Live Current</div>
+          <div class="metric-val" id="currVal">-- A</div>
+          <div class="metric-sub" id="efuseSub">e-Fuse: -- A</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Power Draw</div>
+          <div class="metric-val" id="pwrVal">-- W</div>
+          <div class="metric-sub" id="tareSub">0A Tare: -- A</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Est. Runtime</div>
+          <div class="metric-val" id="etaVal">--</div>
+          <div class="metric-sub">At current load</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title"><span>Battery Management</span></div>
+      <button id="btnNewBat" class="btn-primary" onclick="handleNewBatteryTap()">
+        New Full Battery Inserted (100%)
+      </button>
+      <div style="font-size:11.5px;color:var(--muted);text-align:center;margin:6px 0 12px;">
+        Resets discharged mAh to 0 and persists 100% SoC to Yukon flash.
+      </div>
+
+      <label style="font-size:12px;font-weight:600;color:#cbd5e1;">Battery Pack Capacity</label>
+      <div class="field-row">
+        <div class="field-wrap">
+          <input id="inputCap" type="number" inputmode="numeric" min="100" max="50000" step="50" value="2200">
+          <span class="field-unit">mAh</span>
+        </div>
+        <button class="btn-secondary" onclick="saveCapacity()">Save</button>
+      </div>
+
+      <details style="margin-top:11px;border-top:1px solid var(--border);padding-top:9px;">
+        <summary style="font-size:12px;color:var(--muted);cursor:pointer;">Set manual charge % for partial pack</summary>
+        <div class="field-row" style="margin-top:8px;">
+          <div class="field-wrap">
+            <input id="inputManualSoc" type="number" inputmode="decimal" min="0" max="100" step="1" placeholder="e.g. 50">
+            <span class="field-unit">%</span>
+          </div>
+          <button class="btn-secondary" onclick="saveManualSoc()">Set %</button>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <!-- ==================== TAB 4: 9DOF COMPASS & SENSORS ==================== -->
+  <div id="tab-sensors" class="tab-pane">
+    <section class="card">
+      <div class="card-title">
+        <span>9DoF AHRS Compass (ICM-20948 + AK09916)</span>
+        <span id="calBadge">Uncalibrated</span>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div class="metric">
+          <div class="metric-label">Fused Heading</div>
+          <div class="metric-val" id="imuHdg">--&deg;</div>
+          <div class="metric-sub" id="imuMagHdg">Raw Mag: --&deg;</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Pitch / Roll Tilt</div>
+          <div class="metric-val" id="imuTilt">--</div>
+          <div class="metric-sub" id="imuMagVec">Mag: -- uT</div>
+        </div>
+      </div>
+
+      <div id="calControls" class="seg-row">
+        <button class="chip-btn" onclick="imuCal('start')">Start 360&deg; Spin Calibration</button>
+      </div>
+      <div id="calActiveRow" class="seg-row" style="display:none;">
+        <button class="chip-btn armed-on" onclick="imuCal('save')">Save Calibration (<span id="calCount">0</span> pts)</button>
+        <button class="chip-btn" onclick="imuCal('cancel')">Cancel</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>GNSS &amp; Yukon Diagnostics</span>
+        <span id="uptimeVal">Up 0s</span>
+      </div>
+      <div class="kv-list">
+        <div class="kv"><span class="kv-k">GNSS Status (PA1010D)</span><span class="kv-v" id="gpsStatus">--</span></div>
+        <div class="kv"><span class="kv-k">Coordinates</span><span class="kv-v" id="gpsCoords">--</span></div>
+        <div class="kv"><span class="kv-k">Altitude / Ground Speed</span><span class="kv-v" id="gpsAltSpd">--</span></div>
+        <div class="kv"><span class="kv-k">Yukon Temp / Free RAM</span><span class="kv-v" id="sysDiag">--</span></div>
+      </div>
+    </section>
+  </div>
+
+  <footer style="text-align:center;color:#64748b;font-size:11px;margin-top:12px;">
+    ARSE &mdash; Autonomous Road Systems Engineering &bull; Conical Mobility Div.
+  </footer>
+</div>
+
+<div id="toast" class="toast">Saved</div>
+
+<script>
+  // ---------------- UI Helpers & Tab Switching ----------------
+  let latestTelemetry = null;
+  let isArmed = false;
+  let sentryEnabled = false;
+  let pollTimer = null;
+  let benchCh = 1;
+  let benchHoldTimer = null;
+  let peakMotorAmps = 0;
+  let loopEnabled = false;
+  let mapTapMode = false;
+  let radarScaleM = 15;
+  let confirmArmed = false;
+  let confirmTimer = null;
+
+  function switchTab(id, btn) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    btn.classList.add('active');
+    if (id === 'drive') drawJoystick();
+    if (id === 'mission') {
+      drawRadar();
+      ensureSatelliteMap();
+      if (satMap) setTimeout(() => { satMap.invalidateSize(); updateSatelliteMap(); }, 60);
+    }
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2300);
+  }
+
+  async function apiPost(url, body) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    return r.json();
+  }
+
+  function cardinal(deg) {
+    const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+    return dirs[Math.round(((deg % 360) / 45)) % 8];
+  }
+
+  // ---------------- Virtual Holonomic Joystick & Spin ----------------
+  const joyCanvas = document.getElementById('joyCanvas');
+  const joyCtx = joyCanvas.getContext('2d');
+  let joyActive = false;
+  let joyX = 0, joyY = 0; // UI normalized [-1..1]: +joyX right, -joyY up
+  let spinCmd = 0;        // +1 CCW, -1 CW
+  let driveTimer = null;
+
+  function drawJoystick() {
+    const w = joyCanvas.width, h = joyCanvas.height;
+    const cx = w / 2, cy = h / 2, maxR = 76;
+    joyCtx.clearRect(0, 0, w, h);
+
+    // Crosshairs & rings
+    joyCtx.strokeStyle = 'rgba(148,160,184,0.18)';
+    joyCtx.lineWidth = 1;
+    [38, 76].forEach(r => {
+      joyCtx.beginPath(); joyCtx.arc(cx, cy, r, 0, Math.PI * 2); joyCtx.stroke();
+    });
+    joyCtx.beginPath();
+    joyCtx.moveTo(cx, 16); joyCtx.lineTo(cx, h - 16);
+    joyCtx.moveTo(16, cy); joyCtx.lineTo(w - 16, cy);
+    joyCtx.stroke();
+
+    // Puck
+    const px = cx + joyX * maxR;
+    const py = cy + joyY * maxR;
+    joyCtx.beginPath();
+    joyCtx.arc(px, py, 28, 0, Math.PI * 2);
+    joyCtx.fillStyle = (joyActive || spinCmd !== 0) ? '#ff6b00' : '#334155';
+    joyCtx.fill();
+    joyCtx.lineWidth = 2;
+    joyCtx.strokeStyle = '#ff9c52';
+    joyCtx.stroke();
+  }
+
+  function sendDriveNow() {
+    // Convert screen (joyX right, joyY down) -> robot body (+vx fwd, +vy left, +omega CCW)
+    const vx = -joyY;
+    const vy = -joyX;
+    fetch('/api/drive/cmd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vx: +vx.toFixed(2), vy: +vy.toFixed(2), omega: spinCmd })
+    }).then(r => r.json()).then(res => {
+      if (res && res.w) renderWheelBars(res.w);
+    }).catch(() => {});
+  }
+
+  function startDriveLoop() {
+    if (!driveTimer) {
+      sendDriveNow();
+      driveTimer = setInterval(sendDriveNow, 110);
+    }
+  }
+
+  function stopDriveIfIdle() {
+    if (!joyActive && spinCmd === 0) {
+      if (driveTimer) { clearInterval(driveTimer); driveTimer = null; }
+      joyX = 0; joyY = 0;
+      drawJoystick();
+      sendDriveNow();
+    }
+  }
+
+  function updateJoyFromEvent(e) {
+    const rect = joyCanvas.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    const maxR = rect.width * 0.33;
+    let dx = (e.clientX - rect.left - cx) / maxR;
+    let dy = (e.clientY - rect.top - cy) / maxR;
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1) { dx /= mag; dy /= mag; }
+    joyX = dx; joyY = dy;
+    drawJoystick();
+  }
+
+  joyCanvas.addEventListener('pointerdown', e => {
+    joyCanvas.setPointerCapture(e.pointerId);
+    joyActive = true;
+    updateJoyFromEvent(e);
+    startDriveLoop();
+  });
+  joyCanvas.addEventListener('pointermove', e => {
+    if (joyActive) updateJoyFromEvent(e);
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => {
+    joyCanvas.addEventListener(ev, () => {
+      joyActive = false;
+      joyX = 0; joyY = 0;
+      drawJoystick();
+      stopDriveIfIdle();
+    });
+  });
+
+  function bindSpinButton(id, val) {
+    const b = document.getElementById(id);
+    b.addEventListener('pointerdown', e => {
+      b.setPointerCapture(e.pointerId);
+      b.classList.add('pressing');
+      spinCmd = val;
+      drawJoystick();
+      startDriveLoop();
+    });
+    ['pointerup', 'pointercancel'].forEach(ev => {
+      b.addEventListener(ev, () => {
+        b.classList.remove('pressing');
+        spinCmd = 0;
+        drawJoystick();
+        stopDriveIfIdle();
+      });
+    });
+  }
+  bindSpinButton('btnSpinCCW', 0.65);
+  bindSpinButton('btnSpinCW', -0.65);
+  drawJoystick();
+
+  // ---------------- Single-Motor Bench Control ----------------
+  const benchSlider = document.getElementById('benchSlider');
+
+  function selectBenchCh(ch) {
+    benchCh = ch;
+    [0, 1, 2, 3].forEach(c => {
+      document.getElementById('bch-' + c).classList.toggle('active', c === ch);
+    });
+  }
+
+  function sendBenchCmd(spd, durMs) {
+    document.getElementById('benchSpdLbl').textContent = 'Output: ' + Math.round(spd * 100) + '%';
+    fetch('/api/drive/bench', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: benchCh, speed: +spd.toFixed(2), duration_ms: durMs || 0 })
+    }).then(r => r.json()).then(res => {
+      if (res && res.w) renderWheelBars(res.w);
+      if (res && !res.armed && Math.abs(spd) > 0.01) {
+        showToast('Dry-Run: Tap Arm above to spin physical motor');
+      }
+    }).catch(() => {});
+  }
+
+  function benchPulse(spd) {
+    if (benchHoldTimer) { clearInterval(benchHoldTimer); benchHoldTimer = null; }
+    benchSlider.value = Math.round(spd * 100);
+    sendBenchCmd(spd, spd === 0 ? 0 : 2000);
+    if (spd !== 0) {
+      setTimeout(() => {
+        if (!benchHoldTimer) {
+          benchSlider.value = 0;
+          document.getElementById('benchSpdLbl').textContent = 'Output: 0%';
+        }
+      }, 2050);
+    }
+  }
+
+  benchSlider.addEventListener('pointerdown', () => {
+    if (!benchHoldTimer) {
+      benchHoldTimer = setInterval(() => {
+        sendBenchCmd(parseInt(benchSlider.value, 10) / 100, 0);
+      }, 120);
+    }
+  });
+  benchSlider.addEventListener('input', () => {
+    sendBenchCmd(parseInt(benchSlider.value, 10) / 100, 0);
+  });
+  ['pointerup', 'pointercancel', 'change'].forEach(ev => {
+    benchSlider.addEventListener(ev, () => {
+      if (benchHoldTimer) { clearInterval(benchHoldTimer); benchHoldTimer = null; }
+      benchSlider.value = 0;
+      sendBenchCmd(0, 0);
+    });
+  });
+
+  function renderWheelBars(wheels) {
+    ['w1', 'w2', 'w3'].forEach((id, i) => {
+      const v = wheels[i] || 0;
+      document.getElementById(id + 'Txt').textContent = Math.round(v * 100) + '%';
+      const bar = document.getElementById(id + 'Bar');
+      const pct = Math.min(50, Math.abs(v) * 50);
+      bar.style.width = pct + '%';
+      bar.style.left = v >= 0 ? '50%' : (50 - pct) + '%';
+      bar.style.background = v >= 0 ? 'var(--cone)' : 'var(--blue)';
+    });
+  }
+
+  // ---------------- Drive, Lights & Audio Actions ----------------
+  async function toggleArmed() {
+    const res = await apiPost('/api/drive/config', { armed: !isArmed });
+    if (res.ok) {
+      isArmed = res.drive.armed;
+      showToast(isArmed ? 'Drive ARMED — Motors Live' : 'Drive Disarmed (Dry-Run)');
+    } else {
+      showToast(res.error || 'Cannot arm');
+    }
+  }
+
+  async function setSpeedMode(mode) {
+    const res = await apiPost('/api/drive/config', { speed_mode: mode });
+    if (res.ok) showToast('Speed mode: ' + mode.toUpperCase());
+  }
+
+  async function triggerEstop() {
+    joyActive = false; spinCmd = 0; joyX = 0; joyY = 0;
+    if (driveTimer) { clearInterval(driveTimer); driveTimer = null; }
+    if (benchHoldTimer) { clearInterval(benchHoldTimer); benchHoldTimer = null; }
+    benchSlider.value = 0;
+    document.getElementById('benchSpdLbl').textContent = 'Output: 0%';
+    drawJoystick();
+    await apiPost('/api/drive/estop', {});
+    showToast('E-STOP ENGAGED — Motors Disarmed');
+  }
+
+  async function setLights(mode) {
+    const res = await apiPost('/api/lights', { mode });
+    if (res.ok) showToast('LED Mode: ' + mode);
+  }
+
+  async function setLightBrightness(val) {
+    document.getElementById('ledBriTxt').textContent = val + '%';
+    await apiPost('/api/lights', { brightness: parseInt(val, 10) / 100 });
+  }
+
+  let audioInFlight = false;
+  let queuedAudioCmd = null;
+  let volDragging = false;
+
+  async function playAudio(sound) {
+    if (audioInFlight) {
+      queuedAudioCmd = sound;
+      return;
+    }
+    audioInFlight = true;
+    try {
+      const res = await apiPost('/api/audio', { sound });
+      if (!res.ok) showToast(res.error || 'Audio fault');
+    } finally {
+      audioInFlight = false;
+      if (queuedAudioCmd !== null) {
+        const next = queuedAudioCmd;
+        queuedAudioCmd = null;
+        playAudio(next);
+      }
+    }
+  }
+
+  function previewAudioVolume(val) {
+    volDragging = true;
+    document.getElementById('audVolTxt').textContent = val + '%';
+  }
+
+  async function setAudioVolume(val) {
+    volDragging = false;
+    document.getElementById('audVolTxt').textContent = val + '%';
+    await apiPost('/api/audio', { volume: parseInt(val, 10) / 100 });
+  }
+
+  // ---------------- Anti-Theft IMU Sentry Mode ----------------
+  async function toggleSentry() {
+    const action = sentryEnabled ? 'disarm' : 'arm';
+    const res = await apiPost('/api/sentry', { action });
+    if (res.ok) {
+      if (latestTelemetry && res.sentry) latestTelemetry.sentry = res.sentry;
+      renderSentryState(res.sentry, latestTelemetry ? latestTelemetry.system : null);
+      if (pollTimer) { clearTimeout(pollTimer); pollTelemetry(); }
+      showToast(action === 'arm'
+        ? 'Sentry Arming (3s) — Stand clear of cone!'
+        : 'Sentry Mode Disarmed');
+    } else {
+      showToast(res.error || 'Sentry action failed');
+    }
+  }
+
+  async function disarmSentryNow() {
+    const res = await apiPost('/api/sentry', { action: 'disarm' });
+    if (res.ok) {
+      if (latestTelemetry && res.sentry) latestTelemetry.sentry = res.sentry;
+      renderSentryState(res.sentry, latestTelemetry ? latestTelemetry.system : null);
+      if (pollTimer) { clearTimeout(pollTimer); pollTelemetry(); }
+      showToast('Police Alarm Silenced — Sentry Disarmed');
+    }
+  }
+
+  async function setSentrySens(level) {
+    const res = await apiPost('/api/sentry', { sensitivity: level });
+    if (res.ok) {
+      if (latestTelemetry && res.sentry) latestTelemetry.sentry = res.sentry;
+      renderSentryState(res.sentry, latestTelemetry ? latestTelemetry.system : null);
+      showToast('Sentry sensitivity: ' + level.toUpperCase());
+    } else {
+      showToast(res.error || 'Failed to set sensitivity');
+    }
+  }
+
+  function renderSentryState(s, sys) {
+    if (!s || !s.state) return;
+    sentryEnabled = (s.state !== 'OFF');
+    const badge = document.getElementById('sentryBadge');
+    const btn = document.getElementById('btnSentry');
+    const alarmBanner = document.getElementById('sentryAlarmBanner');
+
+    ['high', 'medium', 'low'].forEach(lvl => {
+      const el = document.getElementById('sen-' + lvl);
+      if (el) el.classList.toggle('active', s.sensitivity === lvl);
+    });
+
+    badge.className = 'sentry-badge';
+    btn.className = 'btn-sentry';
+    alarmBanner.classList.toggle('show', s.state === 'ALARM');
+
+    if (s.state === 'OFF') {
+      badge.textContent = 'DISARMED';
+      btn.textContent = 'Arm Sentry Mode (Low-Power Watch)';
+    } else if (s.state === 'ARMING') {
+      badge.classList.add('arming');
+      badge.textContent = 'ARMING (' + (s.timer_s || 0).toFixed(1) + 's)';
+      btn.classList.add('active');
+      btn.textContent = 'Settling IMU Baseline... (Tap to Cancel)';
+    } else if (s.state === 'WATCH') {
+      badge.classList.add('watch');
+      badge.textContent = 'LOW-POWER WATCH \u2022 5Hz';
+      btn.classList.add('active');
+      btn.textContent = 'Sentry Armed (0mA Bus) — Tap to Disarm';
+    } else if (s.state === 'ALARM') {
+      badge.classList.add('alarm');
+      badge.textContent = 'POLICE ALARM (' + (s.timer_s || 0).toFixed(0) + 's)';
+      btn.classList.add('alarm');
+      btn.textContent = 'SILENCE POLICE ALARM & DISARM';
+      document.getElementById('sentryBannerTxt').textContent =
+        'POLICE ALARM #' + s.alarm_count + ' — ' + (s.last_trigger || 'CONE MOVED!');
+    }
+
+    document.getElementById('senMotion').innerHTML =
+      (s.accel_delta_g || 0).toFixed(2) + 'g / ' + Math.round(s.gyro_dps || 0) + '&deg;/s';
+    const railOn = sys ? sys.main_output_enabled : !s.low_power_active;
+    document.getElementById('senPower').textContent = s.low_power_active
+      ? '12V Rail OFF (Low-Power PM)'
+      : (railOn ? '12V Rail: Active' : '12V Rail: Standby');
+    document.getElementById('senCount').textContent =
+      (s.alarm_count || 0) + (s.alarm_count === 1 ? ' Alert' : ' Alerts');
+    document.getElementById('senLast').textContent = s.last_trigger || (sentryEnabled ? 'Watching gravity vector' : 'Standby');
+  }
+
+  // ---------------- Client-Side Satellite Map & Offline Radar ----------------
+  const radarCanvas = document.getElementById('radarCanvas');
+  const rCtx = radarCanvas.getContext('2d');
+
+  let activeMapView = 'sat';
+  let leafletLoading = false;
+  let satMap = null;
+  let satConeMarker = null;
+  let satAccCircle = null;
+  let satHomeMarker = null;
+  let satPathLine = null;
+  let satWpLayer = null;
+  let satAutoCentered = false;
+  let lastWpSig = '';
+
+  function setMapView(view) {
+    activeMapView = view;
+    document.getElementById('btnViewSat').classList.toggle('active', view === 'sat');
+    document.getElementById('btnViewRadar').classList.toggle('active', view === 'radar');
+    document.getElementById('satMapWrap').style.display = (view === 'sat') ? 'block' : 'none';
+    document.getElementById('radarWrapBox').style.display = (view === 'radar') ? 'flex' : 'none';
+    if (view === 'sat') {
+      ensureSatelliteMap();
+      if (satMap) setTimeout(() => { satMap.invalidateSize(); updateSatelliteMap(); }, 60);
+    } else {
+      drawRadar();
+    }
+  }
+
+  function ensureSatelliteMap() {
+    if (satMap) return;
+    if (window.L) {
+      initLeafletMap();
+      return;
+    }
+    if (leafletLoading) return;
+    leafletLoading = true;
+
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+
+    const scr = document.createElement('script');
+    scr.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    scr.async = true;
+    scr.onload = () => {
+      leafletLoading = false;
+      initLeafletMap();
+    };
+    scr.onerror = () => {
+      leafletLoading = false;
+      const ov = document.getElementById('satStatusOverlay');
+      if (ov) ov.textContent = 'No internet on device — switched to Offline Radar';
+      setMapView('radar');
+    };
+    document.head.appendChild(scr);
+  }
+
+  function buildConeSvgIcon(hdgDeg) {
+    const rot = Number(hdgDeg || 0).toFixed(1);
+    const html =
+      '<div style="width:38px;height:38px;display:flex;align-items:center;justify-content:center;transform:rotate(' + rot + 'deg);">' +
+      '<svg width="38" height="38" viewBox="0 0 38 38">' +
+      '<polygon points="19,1 28,17 19,13 10,17" fill="rgba(255,107,0,0.45)"/>' +
+      '<circle cx="19" cy="21" r="9.5" fill="#ff6b00" stroke="#ffffff" stroke-width="2.2"/>' +
+      '<circle cx="19" cy="21" r="3.6" fill="#ffffff"/>' +
+      '</svg></div>';
+    return L.divIcon({ className: '', html: html, iconSize: [38, 38], iconAnchor: [19, 21] });
+  }
+
+  function initLeafletMap() {
+    if (satMap || !window.L) return;
+    const g = latestTelemetry && latestTelemetry.gps;
+    const initLat = (g && g.has_fix) ? (g.lat_e7 / 1e7) : 52.28912;
+    const initLon = (g && g.has_fix) ? (g.lon_e7 / 1e7) : 0.05255;
+
+    satMap = L.map('satMap', {
+      zoomControl: true,
+      attributionControl: false,
+      maxZoom: 22
+    }).setView([initLat, initLon], 20);
+
+    // Client-side Esri World Imagery aerial/satellite tiles (over-zoomed up to z=22 ~3cm/px)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxNativeZoom: 19,
+      maxZoom: 22
+    }).addTo(satMap);
+
+    satWpLayer = L.layerGroup().addTo(satMap);
+
+    satMap.on('click', async ev => {
+      if (!mapTapMode) return;
+      const lat_e7 = Math.round(ev.latlng.lat * 1e7);
+      const lon_e7 = Math.round(ev.latlng.lng * 1e7);
+      const res = await apiPost('/api/nav/action', { action: 'add_latlon', lat_e7, lon_e7 });
+      if (res.ok) {
+        if (latestTelemetry && res.nav) latestTelemetry.nav = res.nav;
+        updateSatelliteMap();
+        drawRadar();
+        showToast('Plotted WP at ' + ev.latlng.lat.toFixed(6) + ', ' + ev.latlng.lng.toFixed(6));
+      } else {
+        showToast(res.error || 'Failed to add waypoint');
+      }
+    });
+
+    if (g && g.has_fix) satAutoCentered = true;
+    updateSatelliteMap();
+  }
+
+  function centerSatOnCone(fitAll) {
+    if (!satMap) { setMapView('sat'); return; }
+    const g = latestTelemetry && latestTelemetry.gps;
+    const n = latestTelemetry && latestTelemetry.nav;
+    if (g && g.has_fix) {
+      satMap.setView([g.lat_e7 / 1e7, g.lon_e7 / 1e7], Math.max(satMap.getZoom(), 20), { animate: true });
+      satAutoCentered = true;
+    } else if (n && n.home) {
+      satMap.setView([n.home.lat_e7 / 1e7, n.home.lon_e7 / 1e7], 20, { animate: true });
+    } else if (n && n.waypoints && n.waypoints.length) {
+      satMap.setView([n.waypoints[0].lat_e7 / 1e7, n.waypoints[0].lon_e7 / 1e7], 20, { animate: true });
+    } else {
+      showToast('Waiting for GNSS satellite lock');
+    }
+  }
+
+  function updateSatelliteMap() {
+    if (!satMap || !window.L || !latestTelemetry) return;
+    const g = latestTelemetry.gps;
+    const imu = latestTelemetry.imu;
+    const nav = latestTelemetry.nav;
+    const ov = document.getElementById('satStatusOverlay');
+
+    if (g && g.has_fix) {
+      const lat = g.lat_e7 / 1e7;
+      const lon = g.lon_e7 / 1e7;
+      const hdg = imu ? imu.heading_deg : 0;
+      const accRadiusM = Math.max(1.2, (g.hdop || 1.0) * 1.8);
+
+      if (!satConeMarker) {
+        satConeMarker = L.marker([lat, lon], { icon: buildConeSvgIcon(hdg), zIndexOffset: 900 }).addTo(satMap);
+      } else {
+        satConeMarker.setLatLng([lat, lon]);
+        satConeMarker.setIcon(buildConeSvgIcon(hdg));
+      }
+
+      if (!satAccCircle) {
+        satAccCircle = L.circle([lat, lon], {
+          radius: accRadiusM,
+          color: '#ff6b00',
+          weight: 1,
+          fillColor: '#ff6b00',
+          fillOpacity: 0.14
+        }).addTo(satMap);
+      } else {
+        satAccCircle.setLatLng([lat, lon]);
+        satAccCircle.setRadius(accRadiusM);
+      }
+
+      if (!satAutoCentered) {
+        satMap.setView([lat, lon], 20);
+        satAutoCentered = true;
+      }
+      if (ov) ov.textContent = g.satellites + ' sats \u2022 HDOP ' + g.hdop + ' \u2022 ' + lat.toFixed(6) + ', ' + lon.toFixed(6) + ' (Z' + satMap.getZoom() + ')';
+    } else if (ov) {
+      ov.textContent = 'Searching for GNSS lock (' + ((g && g.satellites) || 0) + ' sats)...';
+    }
+
+    if (nav) {
+      if (nav.home) {
+        const hll = [nav.home.lat_e7 / 1e7, nav.home.lon_e7 / 1e7];
+        if (!satHomeMarker) {
+          const hIcon = L.divIcon({
+            className: '',
+            html: '<div style="width:20px;height:20px;border-radius:4px;background:#10b981;border:2px solid #fff;color:#06281e;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;">H</div>',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+          });
+          satHomeMarker = L.marker(hll, { icon: hIcon }).addTo(satMap);
+        } else {
+          satHomeMarker.setLatLng(hll);
+        }
+      } else if (satHomeMarker) {
+        satMap.removeLayer(satHomeMarker);
+        satHomeMarker = null;
+      }
+
+      const wps = nav.waypoints || [];
+      const sig = nav.current_index + '|' + nav.loop_mission + '|' + wps.map(w => w.lat_e7 + ',' + w.lon_e7 + ',' + w.name).join(';');
+      if (sig !== lastWpSig) {
+        lastWpSig = sig;
+        satWpLayer.clearLayers();
+        if (satPathLine) { satMap.removeLayer(satPathLine); satPathLine = null; }
+
+        if (wps.length) {
+          const pts = wps.map(w => [w.lat_e7 / 1e7, w.lon_e7 / 1e7]);
+          if (nav.loop_mission && pts.length > 1) pts.push(pts[0]);
+          satPathLine = L.polyline(pts, { color: '#3b82f6', weight: 3, dashArray: '6,5' }).addTo(satMap);
+
+          wps.forEach((w, idx) => {
+            const isCur = idx === nav.current_index;
+            const bg = isCur ? '#f59e0b' : '#3b82f6';
+            const wpIcon = L.divIcon({
+              className: '',
+              html: '<div style="padding:1px 6px;border-radius:10px;background:' + bg + ';border:1.5px solid #fff;color:#fff;font-weight:700;font-size:10.5px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.6);">' + (idx + 1) + ': ' + w.name + '</div>',
+              iconAnchor: [14, 10]
+            });
+            L.marker([w.lat_e7 / 1e7, w.lon_e7 / 1e7], { icon: wpIcon }).addTo(satWpLayer);
+          });
+        }
+      }
+    }
+  }
+
+  function toggleMapTap() {
+    mapTapMode = !mapTapMode;
+    const b = document.getElementById('btnMapTap');
+    b.classList.toggle('active', mapTapMode);
+    b.textContent = 'Tap Map to Plot: ' + (mapTapMode ? 'ON' : 'OFF');
+  }
+
+  radarCanvas.addEventListener('click', async e => {
+    if (!mapTapMode) return;
+    const rect = radarCanvas.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;   // East [-1..1]
+    const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1); // North [-1..1]
+    const east_m = +(nx * radarScaleM).toFixed(1);
+    const north_m = +(ny * radarScaleM).toFixed(1);
+    const res = await apiPost('/api/nav/action', { action: 'add_offset', north_m, east_m });
+    if (res.ok) {
+      if (latestTelemetry) latestTelemetry.nav = res.nav;
+      drawRadar();
+      showToast('Added WP (' + north_m + 'm N, ' + east_m + 'm E)');
+    } else {
+      showToast(res.error || 'Need GNSS fix');
+    }
+  });
+
+  function drawRadar() {
+    const w = radarCanvas.width, h = radarCanvas.height;
+    const cx = w / 2, cy = h / 2;
+    rCtx.clearRect(0, 0, w, h);
+
+    const nav = latestTelemetry ? latestTelemetry.nav : null;
+    const imu = latestTelemetry ? latestTelemetry.imu : null;
+
+    // Auto-scale radar radius
+    let maxCoord = 10;
+    if (nav) {
+      if (nav.cone_ne) maxCoord = Math.max(maxCoord, Math.abs(nav.cone_ne[0]), Math.abs(nav.cone_ne[1]));
+      (nav.waypoints || []).forEach(p => {
+        maxCoord = Math.max(maxCoord, Math.abs(p.n_m), Math.abs(p.e_m));
+      });
+    }
+    radarScaleM = Math.ceil((maxCoord * 1.25) / 5) * 5;
+    const pxPerM = (w * 0.44) / radarScaleM;
+
+    // Grid & range rings
+    rCtx.strokeStyle = 'rgba(148,160,184,0.16)';
+    rCtx.lineWidth = 1;
+    [0.5, 1.0].forEach(f => {
+      rCtx.beginPath(); rCtx.arc(cx, cy, w * 0.44 * f, 0, Math.PI * 2); rCtx.stroke();
+    });
+    rCtx.beginPath();
+    rCtx.moveTo(cx, 8); rCtx.lineTo(cx, h - 8);
+    rCtx.moveTo(8, cy); rCtx.lineTo(w - 8, cy);
+    rCtx.stroke();
+
+    rCtx.fillStyle = '#64748b';
+    rCtx.font = 'bold 11px sans-serif';
+    rCtx.fillText('N', cx + 5, 16);
+    rCtx.fillText(radarScaleM + 'm', w - 36, h - 10);
+
+    // Home marker at origin (cx, cy)
+    if (nav && nav.has_home) {
+      rCtx.fillStyle = '#10b981';
+      rCtx.fillRect(cx - 4, cy - 4, 8, 8);
+    }
+
+    // Waypoints & path
+    if (nav && nav.waypoints && nav.waypoints.length) {
+      rCtx.strokeStyle = 'rgba(59,130,246,0.65)';
+      rCtx.lineWidth = 2;
+      rCtx.beginPath();
+      nav.waypoints.forEach((wp, i) => {
+        const x = cx + wp.e_m * pxPerM;
+        const y = cy - wp.n_m * pxPerM;
+        if (i === 0) rCtx.moveTo(x, y); else rCtx.lineTo(x, y);
+      });
+      if (nav.loop_mission && nav.waypoints.length > 1) {
+        rCtx.lineTo(cx + nav.waypoints[0].e_m * pxPerM, cy - nav.waypoints[0].n_m * pxPerM);
+      }
+      rCtx.stroke();
+
+      nav.waypoints.forEach((wp, i) => {
+        const x = cx + wp.e_m * pxPerM;
+        const y = cy - wp.n_m * pxPerM;
+        rCtx.beginPath();
+        rCtx.arc(x, y, i === nav.current_index ? 6 : 4.5, 0, Math.PI * 2);
+        rCtx.fillStyle = i === nav.current_index ? '#f59e0b' : '#3b82f6';
+        rCtx.fill();
+        rCtx.fillStyle = '#e2e8f0';
+        rCtx.font = '10px sans-serif';
+        rCtx.fillText(wp.name, x + 7, y + 3);
+      });
+    }
+
+    // Cone live position & heading arrow
+    const cn = (nav && nav.cone_ne) ? nav.cone_ne[0] : 0;
+    const ce = (nav && nav.cone_ne) ? nav.cone_ne[1] : 0;
+    const coneX = cx + ce * pxPerM;
+    const coneY = cy - cn * pxPerM;
+    const hdgRad = ((imu ? imu.heading_deg : 0) * Math.PI) / 180;
+
+    rCtx.save();
+    rCtx.translate(coneX, coneY);
+    rCtx.rotate(hdgRad);
+    rCtx.beginPath();
+    rCtx.moveTo(0, -11);
+    rCtx.lineTo(8, 8);
+    rCtx.lineTo(0, 4);
+    rCtx.lineTo(-8, 8);
+    rCtx.closePath();
+    rCtx.fillStyle = '#ff6b00';
+    rCtx.fill();
+    rCtx.restore();
+  }
+
+  async function navAct(action, extra) {
+    const res = await apiPost('/api/nav/action', Object.assign({ action }, extra || {}));
+    if (res.ok) {
+      if (latestTelemetry && res.nav) latestTelemetry.nav = res.nav;
+      drawRadar();
+      showToast('Mission: ' + action.toUpperCase());
+    } else {
+      showToast(res.error || 'Action failed');
+    }
+  }
+
+  async function setNavConfig(cfg) {
+    const res = await apiPost('/api/nav/action', Object.assign({ action: 'config' }, cfg));
+    if (!res.ok) showToast(res.error || 'Config error');
+  }
+
+  function toggleLoop() {
+    setNavConfig({ loop_mission: !loopEnabled });
+  }
+
+  // ---------------- AI Mission Upload / Paste / Export (arse-mission/v1) ----------------
+  function toggleJsonDrawer(forceShow) {
+    const el = document.getElementById('jsonDrawer');
+    const show = (forceShow !== undefined) ? forceShow : (el.style.display === 'none');
+    el.style.display = show ? 'block' : 'none';
+  }
+
+  async function pasteClipboardIntoBox() {
+    try {
+      const txt = await navigator.clipboard.readText();
+      document.getElementById('missionJsonBox').value = txt;
+      showToast('Pasted from clipboard');
+    } catch (e) {
+      showToast('Long-press inside the text box to paste');
+    }
+  }
+
+  function extractJsonString(raw) {
+    let s = (raw || '').trim();
+    // Strip markdown ```json ... ``` fences if copied directly from Gemini chat
+    s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const firstBrace = s.indexOf('{');
+    const lastBrace = s.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      s = s.slice(firstBrace, lastBrace + 1);
+    }
+    return s;
+  }
+
+  function normalizeMissionForCone(rawText) {
+    const clean = extractJsonString(rawText);
+    if (!clean) throw new Error('Empty mission JSON');
+    let obj;
+    try {
+      obj = JSON.parse(clean);
+    } catch (e) {
+      throw new Error('Invalid JSON syntax: ' + e.message);
+    }
+    if (Array.isArray(obj)) {
+      obj = { waypoints: obj };
+    }
+    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.waypoints) || !obj.waypoints.length) {
+      throw new Error('JSON must have a non-empty "waypoints" array');
+    }
+    if (obj.waypoints.length > 25) {
+      throw new Error('Max 25 waypoints per mission');
+    }
+
+    const out = {
+      mission_name: String(obj.mission_name || obj.name || 'AI Waypoint Mission').slice(0, 36),
+      waypoints: []
+    };
+    if (obj.drive_style) out.drive_style = String(obj.drive_style).toLowerCase();
+    if (typeof obj.loop === 'boolean') out.loop = obj.loop;
+    else if (typeof obj.loop_mission === 'boolean') out.loop = obj.loop_mission;
+    if (typeof obj.arrival_radius_m === 'number') out.arrival_radius_m = obj.arrival_radius_m;
+    if (obj.default_lights) out.default_lights = String(obj.default_lights).toLowerCase();
+    if (obj.anchor_to_current_gps) out.anchor_to_current_gps = true;
+
+    if (obj.home === 'current_gps') {
+      out.home = 'current_gps';
+    } else if (obj.home && typeof obj.home === 'object') {
+      if (typeof obj.home.lat_e7 === 'number' && typeof obj.home.lon_e7 === 'number') {
+        out.home = { lat_e7: Math.round(obj.home.lat_e7), lon_e7: Math.round(obj.home.lon_e7) };
+      } else if (obj.home.lat !== undefined && obj.home.lon !== undefined) {
+        out.home = {
+          lat_e7: Math.round(Number(obj.home.lat) * 1e7),
+          lon_e7: Math.round(Number(obj.home.lon) * 1e7)
+        };
+      }
+    }
+
+    obj.waypoints.forEach((w, i) => {
+      const item = { name: String(w.name || ('WP' + (i + 1))).slice(0, 24) };
+      if (typeof w.lat_e7 === 'number' && typeof w.lon_e7 === 'number') {
+        item.lat_e7 = Math.round(w.lat_e7);
+        item.lon_e7 = Math.round(w.lon_e7);
+      } else if (w.lat !== undefined && w.lon !== undefined) {
+        const lat = Number(w.lat), lon = Number(w.lon);
+        if (!isFinite(lat) || !isFinite(lon)) throw new Error('Invalid lat/lon on WP #' + (i + 1));
+        item.lat_e7 = Math.round(lat * 1e7);
+        item.lon_e7 = Math.round(lon * 1e7);
+      } else if ((w.north_m !== undefined || w.n_m !== undefined) && (w.east_m !== undefined || w.e_m !== undefined)) {
+        item.north_m = +(Number(w.north_m !== undefined ? w.north_m : w.n_m)).toFixed(2);
+        item.east_m = +(Number(w.east_m !== undefined ? w.east_m : w.e_m)).toFixed(2);
+      } else {
+        throw new Error('WP #' + (i + 1) + ' needs (lat, lon) or (north_m, east_m)');
+      }
+      if (w.dwell_s !== undefined && Number(w.dwell_s) > 0) item.dwell_s = +Number(w.dwell_s).toFixed(1);
+      if (w.sound) item.sound = String(w.sound).toLowerCase();
+      if (w.lights) item.lights = String(w.lights).toLowerCase();
+      out.waypoints.push(item);
+    });
+    return out;
+  }
+
+  async function uploadNormalizedMission(rawText) {
+    let payload;
+    try {
+      payload = normalizeMissionForCone(rawText);
+    } catch (e) {
+      showToast(e.message);
+      return;
+    }
+    const res = await apiPost('/api/nav/upload', payload);
+    if (res.ok) {
+      if (latestTelemetry && res.nav) latestTelemetry.nav = res.nav;
+      drawRadar();
+      showToast('Loaded "' + res.mission_name + '" (' + res.count + ' WPs)');
+    } else {
+      showToast(res.error || 'Mission upload failed');
+    }
+  }
+
+  async function submitMissionJsonBox() {
+    const raw = document.getElementById('missionJsonBox').value;
+    await uploadNormalizedMission(raw);
+  }
+
+  function handleMissionFileSelect(ev) {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const txt = String(reader.result || '');
+      document.getElementById('missionJsonBox').value = txt;
+      toggleJsonDrawer(true);
+      await uploadNormalizedMission(txt);
+      ev.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function exportCurrentMission() {
+    const n = latestTelemetry && latestTelemetry.nav;
+    if (!n || !n.waypoints || !n.waypoints.length) {
+      return showToast('No waypoints in queue to export');
+    }
+    const doc = {
+      schema: 'arse-mission/v1',
+      mission_name: n.mission_name || 'Exported Field Mission',
+      drive_style: n.drive_style,
+      loop: !!n.loop_mission,
+      arrival_radius_m: n.arrival_radius_m,
+      default_lights: n.default_lights || undefined,
+      home: n.home ? {
+        lat: +(n.home.lat_e7 / 1e7).toFixed(7),
+        lon: +(n.home.lon_e7 / 1e7).toFixed(7)
+      } : undefined,
+      waypoints: n.waypoints.map(w => {
+        const o = {
+          name: w.name,
+          lat: +(w.lat_e7 / 1e7).toFixed(7),
+          lon: +(w.lon_e7 / 1e7).toFixed(7)
+        };
+        if (w.dwell_s) o.dwell_s = w.dwell_s;
+        if (w.sound) o.sound = w.sound;
+        if (w.lights) o.lights = w.lights;
+        return o;
+      })
+    };
+    const jsonStr = JSON.stringify(doc, null, 2);
+    document.getElementById('missionJsonBox').value = jsonStr;
+    toggleJsonDrawer(true);
+
+    try {
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (doc.mission_name.toLowerCase().replace(/[^a-z0-9]+/g, '_') || 'arse_mission') + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      showToast('Exported mission JSON');
+    } catch (e) {
+      showToast('Mission JSON shown below — copy from text box');
+    }
+  }
+
+  async function copyConeGpsForAi() {
+    const g = latestTelemetry && latestTelemetry.gps;
+    if (!g || !g.has_fix) {
+      return showToast('Waiting for GNSS satellite lock first');
+    }
+    const latStr = (g.lat_e7 / 1e7).toFixed(7);
+    const lonStr = (g.lon_e7 / 1e7).toFixed(7);
+    const snippet = 'Cone current GPS (WGS84): lat=' + latStr + ', lon=' + lonStr;
+    try {
+      await navigator.clipboard.writeText(snippet);
+      showToast('Copied: ' + latStr + ', ' + lonStr);
+    } catch (e) {
+      document.getElementById('missionJsonBox').value = snippet;
+      toggleJsonDrawer(true);
+      showToast('GPS coordinates placed in text box');
+    }
+  }
+
+  // ---------------- Battery & Compass Controls ----------------
+  function handleNewBatteryTap() {
+    const btn = document.getElementById('btnNewBat');
+    if (!confirmArmed) {
+      confirmArmed = true;
+      btn.classList.add('confirming');
+      btn.textContent = 'Tap Again to Confirm Full 100% Pack';
+      confirmTimer = setTimeout(() => {
+        confirmArmed = false;
+        btn.classList.remove('confirming');
+        btn.textContent = 'New Full Battery Inserted (100%)';
+      }, 4000);
+      return;
+    }
+    clearTimeout(confirmTimer);
+    confirmArmed = false;
+    btn.classList.remove('confirming');
+    apiPost('/api/battery/new_full', {}).then(res => {
+      btn.textContent = 'New Full Battery Inserted (100%)';
+      if (res.ok) showToast('Reset to 100% (' + res.battery.capacity_mah + ' mAh)');
+    });
+  }
+
+  async function saveCapacity() {
+    const val = parseFloat(document.getElementById('inputCap').value);
+    if (!val || val < 100 || val > 50000) return showToast('Enter 100 - 50000 mAh');
+    const res = await apiPost('/api/battery/config', { capacity_mah: val });
+    if (res.ok) showToast('Saved capacity: ' + res.battery.capacity_mah + ' mAh');
+  }
+
+  async function saveManualSoc() {
+    const inp = document.getElementById('inputManualSoc');
+    const val = parseFloat(inp.value);
+    if (isNaN(val) || val < 0 || val > 100) return showToast('Enter 0 - 100%');
+    const res = await apiPost('/api/battery/config', { soc_percent: val });
+    if (res.ok) { inp.value = ''; showToast('Anchored SoC to ' + res.battery.soc_percent.toFixed(1) + '%'); }
+  }
+
+  function dismissHint() {
+    document.getElementById('swapBanner').classList.remove('show');
+    apiPost('/api/battery/dismiss_hint', {});
+  }
+
+  async function imuCal(action) {
+    const res = await apiPost('/api/imu/cal', { action });
+    if (res.ok) {
+      if (action === 'start') showToast('Rotate cone slowly 360 deg flat...');
+      if (action === 'save') showToast('Compass calibration saved to flash!');
+    } else {
+      showToast(res.error || 'Calibration error');
+    }
+  }
+
+  // ---------------- Live Telemetry Polling ----------------
+  function formatDuration(mins) {
+    if (!mins || mins <= 0 || !isFinite(mins)) return '--';
+    if (mins < 60) return Math.round(mins) + ' min';
+    return Math.floor(mins / 60) + 'h ' + Math.round(mins % 60) + 'm';
+  }
+
+  async function pollTelemetry() {
+    const pill = document.getElementById('connPill');
+    const connText = document.getElementById('connText');
+    try {
+      const resp = await fetch('/api/telemetry', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const d = await resp.json();
+      latestTelemetry = d;
+
+      pill.className = 'conn-pill online';
+      connText.textContent = 'Live';
+
+      if (d.wifi) {
+        const rssi = d.wifi.rssi ? (' (' + d.wifi.rssi + ' dBm)') : '';
+        document.getElementById('wifiInfo').textContent = d.wifi.mode + ': ' + d.wifi.ssid + ' \u2022 ' + d.wifi.ip + rssi;
+      }
+
+      // Battery
+      if (d.battery) {
+        const b = d.battery;
+        document.getElementById('qsBat').textContent = b.soc_percent.toFixed(0) + '%';
+        document.getElementById('socVal').innerHTML = b.soc_percent.toFixed(1) + '<span>%</span>';
+        document.getElementById('remMah').textContent = Math.round(b.remaining_mah);
+        document.getElementById('capMah').textContent = Math.round(b.capacity_mah);
+        document.getElementById('usedMah').textContent = b.discharged_mah.toFixed(1);
+        document.getElementById('cellTag').textContent = b.battery_present ? (b.cell_voltage_v.toFixed(2) + ' V/cell') : 'USB Only';
+
+        const bar = document.getElementById('socBar');
+        bar.style.width = Math.max(0, Math.min(100, b.soc_percent)) + '%';
+        bar.style.backgroundColor = (b.soc_percent <= 15 || b.is_low) ? 'var(--red)' : (b.soc_percent <= 35 ? 'var(--amber)' : 'var(--green)');
+
+        document.getElementById('voltVal').textContent = b.voltage_v.toFixed(2) + ' V';
+        document.getElementById('currVal').textContent = b.current_a.toFixed(3) + ' A';
+        document.getElementById('efuseSub').textContent = 'e-Fuse: ' + b.efuse_current_a.toFixed(3) + ' A';
+        document.getElementById('pwrVal').textContent = b.power_w.toFixed(2) + ' W';
+        document.getElementById('tareSub').textContent = '0A Tare: ' + b.zero_offset_a.toFixed(3) + ' A';
+        document.getElementById('etaVal').textContent = formatDuration(b.est_minutes);
+
+        // Live Single-Motor Bench Current Readout
+        if (b.efuse_current_a > peakMotorAmps) peakMotorAmps = b.efuse_current_a;
+        document.getElementById('bmEfuse').textContent = b.efuse_current_a.toFixed(3) + ' A';
+        document.getElementById('bmPeak').innerHTML = 'Peak: ' + peakMotorAmps.toFixed(3) + ' A &bull; <u style="cursor:pointer;" onclick="peakMotorAmps=0">reset</u>';
+        document.getElementById('bmVoltPwr').textContent = b.voltage_v.toFixed(2) + ' V / ' + b.power_w.toFixed(1) + ' W';
+
+        const capInp = document.getElementById('inputCap');
+        if (document.activeElement !== capInp) capInp.value = Math.round(b.capacity_mah);
+
+        const badge = document.getElementById('seedBadge');
+        badge.className = b.seed_mode === 'full_charge' ? 'seed-badge verified' : 'seed-badge';
+        badge.textContent = b.seed_mode === 'full_charge'
+          ? 'Calibrated from 100% Full Pack \u2022 Pure Coulomb Counting'
+          : ('Seeded (' + b.initial_soc_percent.toFixed(0) + '%) \u2022 Pure Coulomb Counting');
+
+        document.getElementById('swapBanner').classList.toggle('show', !!b.fresh_battery_suspected);
+        const alertBanner = document.getElementById('alertBanner');
+        if (b.is_critical || b.is_low) {
+          alertBanner.classList.add('show');
+          document.getElementById('alertText').textContent = b.is_critical
+            ? 'CRITICAL BATTERY (' + b.voltage_v.toFixed(2) + 'V) — Bus isolated!'
+            : 'Low Battery (' + b.voltage_v.toFixed(2) + 'V) — Recharge pack soon.';
+        } else {
+          alertBanner.classList.remove('show');
+        }
+      }
+
+      // Sentry Mode
+      if (d.sentry) {
+        renderSentryState(d.sentry, d.system);
+      }
+
+      // Drive
+      if (d.drive) {
+        isArmed = d.drive.armed;
+        const qsD = document.getElementById('qsDrive');
+        if (d.sentry && d.sentry.state && d.sentry.state !== 'OFF') {
+          if (d.sentry.state === 'ALARM') {
+            qsD.textContent = 'ALARM!';
+            qsD.style.color = 'var(--red)';
+          } else if (d.sentry.state === 'ARMING') {
+            qsD.textContent = 'ARMING';
+            qsD.style.color = 'var(--amber)';
+          } else {
+            qsD.textContent = 'SENTRY';
+            qsD.style.color = 'var(--blue)';
+          }
+        } else {
+          qsD.textContent = isArmed ? 'ARMED' : 'SAFE';
+          qsD.style.color = isArmed ? 'var(--green)' : 'var(--muted)';
+        }
+        const btnArm = document.getElementById('btnArm');
+        btnArm.classList.toggle('armed-on', isArmed);
+        btnArm.textContent = isArmed ? 'ARMED — Traction Motors Live (Tap to Disarm)' : 'Disarmed (Bench Dry-Run — Tap to Arm)';
+        document.getElementById('driveSrcTag').textContent = d.drive.source.toUpperCase() + ' (' + d.drive.speed_cap_pct + '%)';
+        ['indoor', 'normal', 'turbo'].forEach(m => {
+          document.getElementById('spd-' + m).classList.toggle('active', d.drive.speed_mode === m);
+        });
+        document.getElementById('bmDrvTemp').innerHTML =
+          'DRV8424: ' + d.drive.drv_temp_c.toFixed(1) + ' &deg;C' + (d.drive.drv_fault ? ' (FAULT!)' : ' (OK)');
+        if (!joyActive && spinCmd === 0 && !benchHoldTimer) renderWheelBars(d.drive.actual_wheels.some(x => Math.abs(x) > 0.01) ? d.drive.actual_wheels : d.drive.target_wheels);
+      }
+
+      // Lights & Audio
+      if (d.lights) {
+        ['off','beacon','strobe','solid','pulse','police','rainbow'].forEach(m => {
+          const el = document.getElementById('led-' + m);
+          if (el) el.classList.toggle('active', d.lights.mode === m);
+        });
+        document.getElementById('ledPgood').textContent = d.lights.enabled
+          ? (d.lights.power_good ? '5V Rail OK' : '5V Fault')
+          : '5V Standby';
+      }
+      if (d.audio) {
+        const dbStr = (d.audio.gain_db === null || d.audio.gain_db === undefined)
+          ? 'Muted'
+          : (d.audio.gain_db.toFixed(1) + ' dB');
+        document.getElementById('audioState').textContent = d.audio.playing
+          ? ('Playing: ' + d.audio.playing + ' (' + dbStr + ')')
+          : ((d.audio.amp_enabled ? 'Amp Idle' : 'Standby') + ' \u2022 ' + dbStr);
+        const volEl = document.getElementById('audVol');
+        if (!volDragging && document.activeElement !== volEl && typeof d.audio.volume === 'number') {
+          const pct = Math.round(d.audio.volume * 100);
+          volEl.value = pct;
+          document.getElementById('audVolTxt').textContent = pct + '%';
+        }
+      }
+
+      // IMU & Compass
+      if (d.imu) {
+        const hdgTxt = d.imu.online ? (d.imu.heading_deg.toFixed(0) + '\u00B0 ' + cardinal(d.imu.heading_deg)) : '--';
+        document.getElementById('qsHdg').textContent = hdgTxt;
+        document.getElementById('imuHdg').textContent = hdgTxt;
+        document.getElementById('imuMagHdg').textContent = d.imu.mag_online
+          ? ('Raw Mag: ' + d.imu.mag_heading_deg.toFixed(0) + '\u00B0')
+          : 'Mag Offline';
+        document.getElementById('imuTilt').innerHTML = d.imu.pitch_deg.toFixed(1) + '&deg; / ' + d.imu.roll_deg.toFixed(1) + '&deg;';
+        if (d.imu.mag_ut) {
+          document.getElementById('imuMagVec').textContent = 'uT: ' + d.imu.mag_ut.join(', ');
+        }
+        document.getElementById('tiltBanner').classList.toggle('show', !!d.imu.tilt_fault && !sentryEnabled);
+        document.getElementById('calBadge').textContent = d.imu.calibrated ? 'Calibrated' : 'Default Cal';
+        document.getElementById('calControls').style.display = d.imu.calibrating ? 'none' : 'flex';
+        document.getElementById('calActiveRow').style.display = d.imu.calibrating ? 'flex' : 'none';
+        document.getElementById('calCount').textContent = d.imu.cal_samples || 0;
+      }
+
+      // GNSS
+      if (d.gps) {
+        document.getElementById('qsGps').textContent = (d.gps.has_fix ? '' : '? ') + d.gps.satellites + ' sat';
+        document.getElementById('gpsStatus').textContent = (d.gps.has_fix ? '3D Lock' : 'Searching') + ' (' + d.gps.satellites + ' sats, HDOP ' + d.gps.hdop + ')';
+        document.getElementById('gpsCoords').textContent = d.gps.has_fix
+          ? (d.gps.latitude.toFixed(6) + ', ' + d.gps.longitude.toFixed(6))
+          : 'Waiting for satellite lock';
+        document.getElementById('gpsAltSpd').textContent = d.gps.altitude_m.toFixed(1) + ' m / ' + d.gps.speed_kmh.toFixed(1) + ' km/h';
+      }
+
+      // Navigation & Radar
+      if (d.nav) {
+        const n = d.nav;
+        loopEnabled = n.loop_mission;
+        document.getElementById('navStateTag').textContent = n.state;
+        document.getElementById('navTgt').textContent = n.state === 'RTH'
+          ? 'Home'
+          : (n.total_waypoints ? ('WP' + (n.current_index + 1) + ' / ' + n.total_waypoints) : 'No WPs');
+        document.getElementById('navReason').textContent = n.pause_reason || n.state;
+        document.getElementById('navDist').textContent = n.distance_m.toFixed(1) + ' m';
+        document.getElementById('navBrg').textContent = 'Brg: ' + n.bearing_deg.toFixed(0) + '\u00B0';
+        document.getElementById('wpCount').textContent = n.total_waypoints;
+        document.getElementById('missionNameLbl').textContent = n.mission_name || 'Mission Queue';
+        document.getElementById('sty-glide').classList.toggle('active', n.drive_style === 'glide');
+        document.getElementById('sty-turn').classList.toggle('active', n.drive_style === 'turn');
+        const bLoop = document.getElementById('btnLoop');
+        bLoop.classList.toggle('active', n.loop_mission);
+        bLoop.textContent = 'Loop: ' + (n.loop_mission ? 'ON' : 'OFF');
+
+        const listEl = document.getElementById('wpList');
+        listEl.innerHTML = (n.waypoints || []).map((wp, idx) => {
+          const tags = [];
+          if (wp.dwell_s) tags.push(wp.dwell_s + 's');
+          if (wp.sound) tags.push('\uD83D\uDD0A' + wp.sound);
+          if (wp.lights) tags.push('\uD83D\uDCA1' + wp.lights);
+          const tagHtml = tags.length ? (' <small style="color:var(--cone);">[' + tags.join(', ') + ']</small>') : '';
+          return '<div class="wp-item ' + (idx === n.current_index ? 'current' : '') + '">' +
+            '<span><b>' + wp.name + '</b> (' + wp.n_m + 'm N, ' + wp.e_m + 'm E)' + tagHtml + '</span>' +
+            '<button class="btn-xs" onclick="navAct(\'delete\',{index:' + idx + '})">&#10005;</button>' +
+            '</div>';
+        }).join('');
+
+        if (document.getElementById('tab-mission').classList.contains('active')) {
+          if (activeMapView === 'sat') updateSatelliteMap();
+          else drawRadar();
+        }
+      }
+
+      // System
+      if (d.system) {
+        document.getElementById('uptimeVal').textContent = 'Up ' + d.system.uptime_s + 's';
+        document.getElementById('sysDiag').innerHTML = d.system.board_temp_c.toFixed(1) + ' &deg;C / ' + d.system.mem_free_kb + ' KB free';
+        document.getElementById('railState').textContent = d.system.main_output_enabled ? 'Power Rail: Active' : 'Power Rail: Standby';
+      }
+    } catch (e) {
+      pill.className = 'conn-pill offline';
+      connText.textContent = 'Offline';
+    } finally {
+      if (pollTimer) clearTimeout(pollTimer);
+      const lowPwr = latestTelemetry && latestTelemetry.sentry && latestTelemetry.sentry.low_power_active;
+      pollTimer = setTimeout(pollTelemetry, lowPwr ? 1500 : 500);
+    }
+  }
+
+  pollTelemetry();
+</script>
+</body>
+</html>

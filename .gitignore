@@ -1,0 +1,79 @@
+# ==============================================================================
+# ARSE Mk.I Autonomous Traffic Cone — Repository .gitignore
+# ==============================================================================
+
+# --- 1. Secrets, Credentials & Local TLS Certificates ---
+.env
+.env.*
+!.env.example
+flash/secrets.json
+**/secrets.json
+secrets.py
+wifi_config.py
+wifi_credentials.json
+flash/certs/
+*.crt
+*.key
+*.pem
+
+# --- 2. Personal Home Coordinates & Unit-Specific Calibration ---
+# Keep generic templates tracked (*.example.json), ignore live local overrides
+flash/aliases.json
+!flash/aliases.example.json
+flash/calibration.json
+config/local_calibration.py
+config/local_*.py
+
+# --- 3. Runtime Flash State, Mission Queues & Breadcrumb Logs ---
+flash/active_mission.json
+flash/staged_mission.json
+flash/breadcrumbs_*.json
+flash/occupancy_map*.bin
+logs/
+*.log
+
+# --- 4. Python & MicroPython Bytecode / Test Caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# --- 5. Virtual Environments & Packaging Artefacts ---
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- 6. Optional Rust Firmware Build Artefacts (RP2040 / ESP32 Bridge) ---
+target/
+**/*.rs.bk
+
+# --- 7. Editor, AI Tooling, Local Reference Clones & Personal Docs ---
+.gemini/
+.refs/pimoroni-yukon/
+*Order*.pdf
+battery_state.json
+compass_cal.json
+mission_state.json
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+Thumbs.db
+Desktop.ini
+.DS_Store
