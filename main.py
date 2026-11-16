@@ -15,6 +15,8 @@ import gc
 import sys
 import time
 gc.collect()
+# Reserve contiguous DMA span before imports so ConeAudio I2S(ibuf=3072) never fragments
+_i2s_reserve = bytearray(3584)
 
 
 class _StubMod:
@@ -74,23 +76,27 @@ del _pyk, _pyk_mods, _INSTALLED_MODS, _um, _uc
 gc.collect()
 
 import config
-from security import AuthManager
-gc.collect()
 from telemetry_server import TelemetryServer
 gc.collect()
 from drivers.navigator import WaypointNavigator
 gc.collect()
+from security import AuthManager
+gc.collect()
 from drivers.audio_sfx import ConeAudio
 gc.collect()
+from nav import PatternRunner
+gc.collect()
 from drivers.icm20948 import ICM20948
+gc.collect()
 from drivers.sentry import SentryGuard
 gc.collect()
 from drivers.battery import BatteryMonitor
 from drivers.drive_controller import DriveController
-from drivers.lights import ConeLights
-from drivers.omni_kinematics import Omni3Kinematics
+gc.collect()
 from drivers.pa1010d import PA1010D
+from drivers.lights import ConeLights
 from drivers.wifi_manager import ConeWiFi
+from drivers.omni_kinematics import Omni3Kinematics
 gc.collect()
 
 
@@ -119,12 +125,14 @@ class ConeApp:
         self.audio = None
         self.drive = None
         self.nav = None
+        self.patterns = None
         self.imu = None
         self.gps = None
         self.wifi = None
         self.sentry = None
         self.auth = None
         self.server = None
+        self._b_critical = False
 
         self.imu_state = {
             "online": False,
@@ -151,6 +159,16 @@ class ConeApp:
         self.yukon.verify_and_initialise()
         self.motor_mod1.set_current_limit(config.MOTOR_CURRENT_LIMIT_AMPS)
         self.motor_mod2.set_current_limit(config.MOTOR_CURRENT_LIMIT_AMPS)
+
+        # Release reserved contiguous span right into ConeAudio's 3072 B I2S ring buffer (MAIN_EN still off)
+        globals().pop("_i2s_reserve", None)
+        gc.collect()
+        self.audio = ConeAudio(
+            self.audio_mod,
+            self.yukon,
+            default_volume=config.DEFAULT_AUDIO_VOLUME,
+        )
+        gc.collect()
 
         # Tare 0A ADC floor BEFORE enabling high-power bus so Coulomb integration is exact
         self.battery = BatteryMonitor(
@@ -186,11 +204,6 @@ class ConeApp:
             num_leds=config.NUM_LEDS,
             led_module=self.led_mod,
             brightness=config.LED_BRIGHTNESS,
-        )
-        self.audio = ConeAudio(
-            self.audio_mod,
-            self.yukon,
-            default_volume=config.DEFAULT_AUDIO_VOLUME,
         )
         gc.collect()
 
@@ -248,6 +261,13 @@ class ConeApp:
             except Exception as e:
                 print("[ARSE-GNSS] Init fault:", e)
 
+        self.patterns = PatternRunner(
+            kinematics=kin,
+            imu=self.imu,
+            led_controller=self.lights,
+        )
+        gc.collect()
+
         # Establish wireless link (STA credentials first, fallback to 'TrafficCone' AP)
         self.wifi = ConeWiFi(
             ap_ssid=config.WIFI_AP_SSID,
@@ -272,6 +292,7 @@ class ConeApp:
             alarm_hold_ms=config.SENTRY_ALARM_HOLD_MS,
             normal_idle_amps=config.LOGIC_QUIESCENT_AMPS,
             low_power_amps=config.SENTRY_LOW_POWER_AMPS,
+            patterns=self.patterns,
         )
 
         # Initialise operator authentication & session lockout manager
@@ -299,6 +320,18 @@ class ConeApp:
     def get_telemetry_snapshot(self):
         uptime_s = time.ticks_diff(time.ticks_ms(), self.boot_ticks) // 1000
         gps_st = self.gps.get_status() if self.gps else {"has_fix": False, "satellites": 0}
+        pat_st = (
+            self.patterns.get_status()
+            if self.patterns
+            else {
+                "state": "IDLE",
+                "active_routine": None,
+                "preset": "indoor",
+                "progress": 0.0,
+                "local_x_m": 0.0,
+                "local_y_m": 0.0,
+            }
+        )
         return {
             "battery": self.battery.get_status(),
             "drive": self.drive.get_status(),
@@ -307,6 +340,11 @@ class ConeApp:
             "imu": self.imu_state,
             "gps": gps_st,
             "nav": self.nav.get_status(gps_st),
+            "routines": pat_st,
+            "active_routine": pat_st["active_routine"],
+            "routine_progress": pat_st["progress"],
+            "local_x_m": pat_st["local_x_m"],
+            "local_y_m": pat_st["local_y_m"],
             "sentry": self.sentry.get_status() if self.sentry else {},
             "wifi": self.wifi.get_status() if self.wifi else {},
             "auth": (
@@ -323,7 +361,7 @@ class ConeApp:
         }
 
     async def control_and_telemetry_loop(self):
-        # 20 Hz (50ms) active loop; throttles to 5 Hz (200ms) during Sentry low-power WATCH
+        # 50 Hz (20 ms) holonomic loop; throttles to 5 Hz (200 ms) during Sentry WATCH
         tick = 0
         watch_tick = 0
         while True:
@@ -333,7 +371,8 @@ class ConeApp:
                 if self.sentry.is_low_power_watch():
                     if watch_tick == 0:
                         b_stat = self.battery.update()
-                        if b_stat["is_critical"] and self.yukon.is_main_output_enabled():
+                        self._b_critical = bool(b_stat["is_critical"])
+                        if self._b_critical and self.yukon.is_main_output_enabled():
                             self.yukon.disable_main_output()
                             self.battery.save()
                         self.board_temp_c = self.yukon.read_temperature()
@@ -341,12 +380,15 @@ class ConeApp:
                     await asyncio.sleep_ms(config.SENTRY_WATCH_INTERVAL_MS)
                     continue
 
-            if (tick & 1) == 0:
+            if (tick % 5) == 0:
                 b_stat = self.battery.update()
+                self._b_critical = bool(b_stat["is_critical"])
 
                 # Critical 3S LiPo over-discharge protection
-                if b_stat["is_critical"] and self.yukon.is_main_output_enabled():
+                if self._b_critical and self.yukon.is_main_output_enabled():
                     print("[ARSE-SAFETY] Critical cell voltage! Isolating main power bus.")
+                    if self.patterns and self.patterns.is_active():
+                        self.patterns.stop("Critical battery cutoff")
                     self.drive.estop()
                     self.lights.set_mode("off")
                     self.audio.stop()
@@ -365,36 +407,64 @@ class ConeApp:
                     if self.gps:
                         self.gps.update()
 
-                    # Closed-loop autonomous waypoint update (10 Hz)
-                    gps_st = self.gps.get_status() if self.gps else {"has_fix": False}
-                    vx, vy, om, nav_active, sfx = self.nav.update(gps_st, self.imu_state, b_stat)
-                    self.drive.set_auto_twist(vx, vy, om, active=nav_active)
-                    led_cmd = self.nav.pop_light_cmd()
-                    if led_cmd and self.yukon.is_main_output_enabled():
-                        try:
-                            self.lights.set_mode(led_cmd)
-                        except Exception:
-                            pass
-                    if sfx and self.yukon.is_main_output_enabled():
-                        try:
-                            self.audio.play(sfx)
-                        except Exception:
-                            pass
+                    if not (self.patterns and self.patterns.is_active()):
+                        # Closed-loop autonomous GNSS waypoint update (10 Hz)
+                        gps_st = self.gps.get_status() if self.gps else {"has_fix": False}
+                        vx, vy, om, nav_active, sfx = self.nav.update(gps_st, self.imu_state, b_stat)
+                        self.drive.set_auto_twist(vx, vy, om, active=nav_active)
+                        led_cmd = self.nav.pop_light_cmd()
+                        if led_cmd and self.yukon.is_main_output_enabled():
+                            try:
+                                self.lights.set_mode(led_cmd)
+                            except Exception:
+                                pass
+                        if sfx and self.yukon.is_main_output_enabled():
+                            try:
+                                self.audio.play(sfx)
+                            except Exception:
+                                pass
+            elif self.imu and self.imu_state.get("online"):
+                # Zero-allocation 50 Hz gyro Z heading integration between 10 Hz mag updates
+                try:
+                    self.imu_state["heading_deg"] = round(self.imu.step_fast_50hz(), 1)
+                except Exception:
+                    self.imu_state["online"] = False
 
-            # 20 Hz actuator updates
-            safety_ok = (not self.imu_state.get("tilt_fault", False)) and (
-                not self.battery.get_status().get("is_critical", False)
-            )
+            safety_ok = (not self.imu_state.get("tilt_fault", False)) and (not self._b_critical)
+
+            # 50 Hz GPS-free dead-reckoning routine update
+            if self.patterns and self.patterns.is_active():
+                if (not safety_ok) or (not self.drive.armed) or (not self.imu_state.get("online", False)):
+                    reason = (
+                        "Tilt / tip-over safety"
+                        if self.imu_state.get("tilt_fault")
+                        else ("Motors disarmed" if not self.drive.armed else "Safety cutoff")
+                    )
+                    self.patterns.stop(reason)
+                    self.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
+                else:
+                    w0, w1, w2, pat_active = self.patterns.step()
+                    self.drive.set_routine_wheels(w0, w1, w2, active=pat_active)
+            elif self.drive._routine_active:
+                self.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
+
+            # 50 Hz motor slew & safety gate
             self.drive.tick(safety_ok=safety_ok)
-            self.lights.tick()
-            self.audio.tick()
+
+            # 20 Hz LED & audio updates (sub-ticks 0 & 2 of each 100 ms block)
+            sub = tick % 5
+            if sub == 0 or sub == 2:
+                self.lights.tick()
+                self.audio.tick()
 
             if tick == 0:
                 self.board_temp_c = self.yukon.read_temperature()
                 self.drive.sample_driver_diagnostics()
+                if (not self.drive.armed) or (self.drive.active_source == "idle"):
+                    gc.collect()
 
-            tick = (tick + 1) % 20
-            await asyncio.sleep_ms(50)
+            tick = (tick + 1) % 50
+            await asyncio.sleep_ms(20)
 
     async def run_async(self):
         await self.server.start()
@@ -414,6 +484,8 @@ class ConeApp:
                     pass
             if self.sentry and self.sentry.is_enabled():
                 self.sentry.disarm()
+            if self.patterns and self.patterns.is_active():
+                self.patterns.stop("Shutdown")
             if self.drive:
                 self.drive.estop()
             if self.lights:

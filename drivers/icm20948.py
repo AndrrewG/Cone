@@ -94,6 +94,13 @@ class ICM20948:
         self.last_mag_ut = (0.0, 0.0, 0.0)
         self.last_accel_g = (0.0, 0.0, 1.0)
         self.last_gyro_dps = (0.0, 0.0, 0.0)
+        self.ax_g = 0.0
+        self.ay_g = 0.0
+        self.az_g = 1.0
+        self.gx_dps = 0.0
+        self.gy_dps = 0.0
+        self.gz_dps = 0.0
+        self._buf14 = bytearray(14)
         self._heading_seeded = False
         self._tilt_ticks = 0
         self.tilt_fault = False
@@ -272,6 +279,34 @@ class ICM20948:
         self.temp_c = d["temp"]
         return self.last_accel_g, self.last_gyro_dps
 
+    def step_fast_50hz(self):
+        # Zero-allocation 50 Hz (20 ms) 6-axis gyro/accel burst & yaw integration
+        now = time.ticks_ms()
+        dt = time.ticks_diff(now, self._last_update_ms) * 0.001
+        if dt < 0.001:
+            dt = 0.001
+        elif dt > 0.200:
+            dt = 0.200
+        self._last_update_ms = now
+
+        self._set_bank(0)
+        if hasattr(self.i2c, "readfrom_mem_into"):
+            self.i2c.readfrom_mem_into(self.address, self.REG_ACCEL_XOUT_H, self._buf14)
+            ax, ay, az, gx, gy, gz, t = struct.unpack_from(">hhhhhhh", self._buf14, 0)
+        else:
+            data = self.i2c.readfrom_mem(self.address, self.REG_ACCEL_XOUT_H, 14)
+            ax, ay, az, gx, gy, gz, t = struct.unpack(">hhhhhhh", data)
+
+        self.ax_g = ax / self.ACCEL_SCALE_2G
+        self.ay_g = ay / self.ACCEL_SCALE_2G
+        self.az_g = az / self.ACCEL_SCALE_2G
+        self.gx_dps = gx / self.GYRO_SCALE_250
+        self.gy_dps = gy / self.GYRO_SCALE_250
+        self.gz_dps = gz / self.GYRO_SCALE_250
+        self.temp_c = (t / 333.87) + 21.0
+        self.heading_deg = (self.heading_deg - self.gz_dps * dt) % 360.0
+        return self.heading_deg
+
     def update_ahrs(self):
         # Updates pitch, roll, tilt-compensated gyro/compass heading (0..360 CW), and tilt_fault
         now = time.ticks_ms()
@@ -281,6 +316,8 @@ class ICM20948:
         d = self.read_all()
         ax, ay, az = d["accel"]
         gx, gy, gz = d["gyro"]
+        self.ax_g, self.ay_g, self.az_g = ax, ay, az
+        self.gx_dps, self.gy_dps, self.gz_dps = gx, gy, gz
         self.last_accel_g = (ax, ay, az)
         self.last_gyro_dps = (gx, gy, gz)
         self.temp_c = d["temp"]

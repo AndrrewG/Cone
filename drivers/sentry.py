@@ -36,6 +36,7 @@ class SentryGuard:
         alarm_hold_ms=12000,
         normal_idle_amps=0.045,
         low_power_amps=0.025,
+        patterns=None,
     ):
         self.yukon = yukon
         self.imu = imu
@@ -45,6 +46,7 @@ class SentryGuard:
         self.nav = nav
         self.wifi = wifi
         self.battery = battery
+        self.patterns = patterns
 
         self.presets = presets or {
             "high": (0.06, 10.0),
@@ -98,6 +100,8 @@ class SentryGuard:
         # Safely halt traction motors and pause any active autonomous route
         if self.drive:
             self.drive.estop()
+        if self.patterns and self.patterns.is_active():
+            self.patterns.stop("Sentry Mode armed")
         if self.nav and self.nav.is_active():
             self.nav.pause("Sentry Mode armed")
 

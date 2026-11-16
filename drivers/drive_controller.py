@@ -53,6 +53,12 @@ class DriveController:
         self._auto_omega = 0.0
         self._auto_active = False
 
+        # Pre-scaled 50 Hz routine wheel commands [-1..1]
+        self._routine_w0 = 0.0
+        self._routine_w1 = 0.0
+        self._routine_w2 = 0.0
+        self._routine_active = False
+
         self.target_wheels = [0.0, 0.0, 0.0]
         self.current_wheels = [0.0, 0.0, 0.0]
         self.active_source = "idle"
@@ -70,6 +76,10 @@ class DriveController:
             self.estop_latched = False
         else:
             self._bench_spd = 0.0
+            self._routine_active = False
+            self._routine_w0 = 0.0
+            self._routine_w1 = 0.0
+            self._routine_w2 = 0.0
             self._halt_hardware()
         return self.get_status()
 
@@ -92,7 +102,13 @@ class DriveController:
         self._auto_vy = 0.0
         self._auto_omega = 0.0
         self._auto_active = False
-        self.target_wheels = [0.0, 0.0, 0.0]
+        self._routine_w0 = 0.0
+        self._routine_w1 = 0.0
+        self._routine_w2 = 0.0
+        self._routine_active = False
+        self.target_wheels[0] = 0.0
+        self.target_wheels[1] = 0.0
+        self.target_wheels[2] = 0.0
         self._halt_hardware()
         return self.get_status()
 
@@ -141,6 +157,17 @@ class DriveController:
             self._auto_vy = 0.0
             self._auto_omega = 0.0
 
+    def set_routine_wheels(self, w0, w1, w2, active=True):
+        self._routine_active = bool(active)
+        if active:
+            self._routine_w0 = max(-1.0, min(1.0, float(w0)))
+            self._routine_w1 = max(-1.0, min(1.0, float(w1)))
+            self._routine_w2 = max(-1.0, min(1.0, float(w2)))
+        else:
+            self._routine_w0 = 0.0
+            self._routine_w1 = 0.0
+            self._routine_w2 = 0.0
+
     def sample_driver_diagnostics(self):
         try:
             t1 = self.m1.read_temperature()
@@ -177,29 +204,44 @@ class DriveController:
             abs(self._man_vx) > 0.01 or abs(self._man_vy) > 0.01 or abs(self._man_omega) > 0.01
         )
 
+        tw = self.target_wheels
         if bench_active:
             self.active_source = "bench"
-            w = [0.0, 0.0, 0.0]
             if self._bench_ch == 0:
-                w = [self._bench_spd, self._bench_spd, self._bench_spd]
+                tw[0] = self._bench_spd
+                tw[1] = self._bench_spd
+                tw[2] = self._bench_spd
             else:
-                w[self._bench_ch - 1] = self._bench_spd
-            self.target_wheels = w
+                tw[0] = 0.0
+                tw[1] = 0.0
+                tw[2] = 0.0
+                tw[self._bench_ch - 1] = self._bench_spd
         elif has_man:
             self.active_source = "manual"
             omega_rad = (self._man_omega / self.kin.R) if self.kin.R > 0.001 else self._man_omega
             w1, w2, w3 = self.kin.compute_wheel_speeds(self._man_vx, self._man_vy, omega_rad)
             cap = self.speed_scale
-            self.target_wheels = [w1 * cap, w2 * cap, w3 * cap]
+            tw[0] = w1 * cap
+            tw[1] = w2 * cap
+            tw[2] = w3 * cap
+        elif self._routine_active:
+            self.active_source = "routine"
+            tw[0] = self._routine_w0
+            tw[1] = self._routine_w1
+            tw[2] = self._routine_w2
         elif self._auto_active:
             self.active_source = "auto"
             omega_rad = (self._auto_omega / self.kin.R) if self.kin.R > 0.001 else self._auto_omega
             w1, w2, w3 = self.kin.compute_wheel_speeds(self._auto_vx, self._auto_vy, omega_rad)
             cap = self.speed_scale
-            self.target_wheels = [w1 * cap, w2 * cap, w3 * cap]
+            tw[0] = w1 * cap
+            tw[1] = w2 * cap
+            tw[2] = w3 * cap
         else:
             self.active_source = "idle"
-            self.target_wheels = [0.0, 0.0, 0.0]
+            tw[0] = 0.0
+            tw[1] = 0.0
+            tw[2] = 0.0
 
         if not safety_ok or not self.yukon.is_main_output_enabled():
             if self.armed and not safety_ok:

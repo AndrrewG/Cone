@@ -55,7 +55,7 @@ try {
     }
 
     # Disarm any active I2S Python IRQ & delete user globals (preserving __builtins__)
-    $null = Invoke-RawRepl "try:`n app.audio._i2s.irq(None)`nexcept Exception:`n pass`nfor _k in ('app','ConeApp','AuthManager','TelemetryServer','WaypointNavigator','ConeAudio','SentryGuard','ICM20948','BatteryMonitor','DriveController','ConeLights','PA1010D','ConeWiFi'):`n globals().pop(_k, None)`n" 400
+    $null = Invoke-RawRepl "try:`n app.audio._i2s.irq(None)`nexcept Exception:`n pass`nfor _k in ('app','ConeApp','AuthManager','PatternRunner','TelemetryServer','WaypointNavigator','ConeAudio','SentryGuard','ICM20948','BatteryMonitor','DriveController','ConeLights','PA1010D','ConeWiFi'):`n globals().pop(_k, None)`n" 400
 
     if (-not $OnlyFile) {
         $cleanupCode = "import os, gc`ntry:`n os.remove('main.py')`nexcept OSError:`n pass`ngc.collect()`n"
@@ -63,7 +63,7 @@ try {
     }
 
     # Clear cached user modules & run GC WITHOUT Ctrl-D VM soft-reset
-    $mkdirCode = "import os, sys, ubinascii, gc`nfor k in ('main','telemetry_server','config','security.auth_manager','security','drivers.navigator','drivers.sentry','drivers.icm20948','drivers.battery','drivers.pa1010d'):`n sys.modules.pop(k, None)`ngc.collect()`nfor d in ('drivers', 'web', 'security'):`n try:`n  os.mkdir(d)`n except OSError:`n  pass`ngc.collect()`n"
+    $mkdirCode = "import os, sys, ubinascii, gc`nfor k in ('main','telemetry_server','config','security.auth_manager','security','nav.pattern_runner','nav','drivers.navigator','drivers.sentry','drivers.icm20948','drivers.battery','drivers.pa1010d','drivers.drive_controller','drivers.omni_kinematics'):`n sys.modules.pop(k, None)`ngc.collect()`nfor d in ('drivers', 'web', 'security', 'nav'):`n try:`n  os.mkdir(d)`n except OSError:`n  pass`ngc.collect()`n"
     $null = Invoke-RawRepl $mkdirCode 800
 
     $filesToSync = @(
@@ -71,6 +71,8 @@ try {
         @{ Local = "config.py";                    Remote = "config.py" },
         @{ Local = "security\__init__.py";         Remote = "security/__init__.py" },
         @{ Local = "security\auth_manager.py";     Remote = "security/auth_manager.py" },
+        @{ Local = "nav\__init__.py";              Remote = "nav/__init__.py" },
+        @{ Local = "nav\pattern_runner.py";        Remote = "nav/pattern_runner.py" },
         @{ Local = "drivers\battery.py";           Remote = "drivers/battery.py" },
         @{ Local = "drivers\wifi_manager.py";      Remote = "drivers/wifi_manager.py" },
         @{ Local = "drivers\icm20948.py";          Remote = "drivers/icm20948.py" },

@@ -34,15 +34,20 @@ class Omni3Kinematics:
         ]
 
     def compute_wheel_speeds(self, vx, vy, omega):
-        speeds = []
-        for alpha in self.angles:
-            # v_wheel = -sin(alpha) * vx + cos(alpha) * vy + R * omega
-            v_i = -math.sin(alpha) * vx + math.cos(alpha) * vy + (self.R * omega)
-            speeds.append(v_i)
+        a0, a1, a2 = self.angles[0], self.angles[1], self.angles[2]
+        rw = self.R * omega
+        s0 = -math.sin(a0) * vx + math.cos(a0) * vy + rw
+        s1 = -math.sin(a1) * vx + math.cos(a1) * vy + rw
+        s2 = -math.sin(a2) * vx + math.cos(a2) * vy + rw
 
-        # Normalize so no motor exceeds +-1.0 full speed while preserving direction
-        max_val = max(abs(s) for s in speeds)
+        # Normalise without heap allocation so no motor exceeds +-1.0
+        max_val = abs(s0)
+        if abs(s1) > max_val:
+            max_val = abs(s1)
+        if abs(s2) > max_val:
+            max_val = abs(s2)
         if max_val > 1.0:
-            speeds = [s / max_val for s in speeds]
+            inv = 1.0 / max_val
+            return s0 * inv, s1 * inv, s2 * inv
 
-        return speeds[0], speeds[1], speeds[2]
+        return s0, s1, s2

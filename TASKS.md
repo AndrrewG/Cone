@@ -76,7 +76,7 @@
 
 ### Priority 2 — GPS-Free Holonomic Movement Routines (`IDEA-005` • Phase 1 `[INSTALLED]` Hardware Only)
 
-- [ ] **Task 2.1 — `50 Hz` IMU Dead-Reckoning Core & `compass_box` Routine (`nav/pattern_runner.py`):**
+- [x] **Task 2.1 — `50 Hz` IMU Dead-Reckoning Core & `compass_box` Routine (`nav/pattern_runner.py`):**
   - Build zero-allocation `50 Hz` (`20 ms`) `PatternRunner` anchoring local Euclidean origin `(x_m = 0.0, y_m = 0.0)` and reference IMU heading `psi_0_deg` at start, integrating body velocity `(vx_mps, vy_mps)` rotated by measured 9DoF heading `psi_deg`, and running closed-loop yaw hold (`omega_dps`).
   - Enforce trapezoidal linear (`accel_mps2`) and angular (`alpha_dps2`) ramps, `"indoor"` (`max_speed_mps = 0.45`, `max_leash_m = 1.8`, `a_c_max_mps2 = 0.75`) and `"outdoor"` (`max_speed_mps = 0.95`, `max_leash_m = 5.5`, `a_c_max_mps2 = 1.15`) presets, virtual circular leash halt (`LEASH_LIMIT_REACHED`), optional `range_provider=None` / `sound_callback=None` hooks, and strict motor-armed gate (`HTTP 409` if disarmed).
   - Implement the **`compass_box`** locked-heading square strafe (`+X` $\rightarrow$ `-Y` $\rightarrow$ `-X` $\rightarrow$ `+Y`) + `POST /api/routines/start` & `POST /api/routines/stop` + live `(local_x_m, local_y_m)` telemetry fields.
@@ -186,6 +186,7 @@
 ---
 
 ## Ongoing Mechanical, Bench & Repository Housekeeping
+- [ ] **Known Issues Log ([ISSUES.md](ISSUES.md)):** Investigate `ISSUE-001` — audible speaker pop when the Slot 6 `TAS2780` audio amplifier turns off ([drivers/audio_sfx.py](drivers/audio_sfx.py)).
 - [ ] **Repository & Tooling Cleanup:** Commit verified firmware + [HARDWARE.md](HARDWARE.md) baseline to `git` and prune any temporary diagnostic scripts in `tools/`.
 - [ ] **Slot 4 Physical LED Wire Mounting:** Mount the `50`-LED `WS2812` wire onto the cone body and verify all modes (`Beacon`, `Strobe`, `Rainbow`, etc.) and `5 V` `PGOOD` status via the Web UI.
 - [ ] **Full 3-Channel Chassis Assembly & Calibration:** Once the 3D-printed equilateral triangle base is ready, wire Motors 1–3, verify `wheel_angles_deg`, `motor_polarity`, and `ICM-20948` nose alignment, and measure exact `chassis_radius_m` (`ROBOT_BASE_RADIUS_M`) in [config.py](config.py) & [HARDWARE.md](HARDWARE.md).

@@ -249,8 +249,12 @@ class TelemetryServer:
                 if abs(spd) > 0.01:
                     return {"ok": False, "error": "Disarm Sentry Mode first"}
                 return {"ok": True, "armed": False, "w": [0.0, 0.0, 0.0]}
-            if app.drive.set_bench_motor(data.get("channel", 1), spd, data.get("duration_ms", 0)) and app.nav.is_active():
-                app.nav.pause("Bench motor override")
+            if app.drive.set_bench_motor(data.get("channel", 1), spd, data.get("duration_ms", 0)):
+                if app.nav.is_active():
+                    app.nav.pause("Bench motor override")
+                if getattr(app, "patterns", None) and app.patterns.is_active():
+                    app.patterns.stop("Bench motor override")
+                    app.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
             return {"ok": True, "armed": app.drive.armed, "w": [round(x, 2) for x in app.drive.target_wheels]}
 
         if path == "/api/drive/cmd":
@@ -259,13 +263,19 @@ class TelemetryServer:
                 if abs(vx) > 0.01 or abs(vy) > 0.01 or abs(om) > 0.01:
                     return {"ok": False, "error": "Disarm Sentry Mode first"}
                 return {"ok": True, "w": [0.0, 0.0, 0.0]}
-            if app.drive.set_manual_twist(vx, vy, om) and app.nav.is_active():
-                app.nav.pause("Manual joystick override")
+            if app.drive.set_manual_twist(vx, vy, om):
+                if app.nav.is_active():
+                    app.nav.pause("Manual joystick override")
+                if getattr(app, "patterns", None) and app.patterns.is_active():
+                    app.patterns.stop("Manual joystick override")
+                    app.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
             return {"ok": True, "w": [round(x, 2) for x in app.drive.target_wheels]}
 
         if path == "/api/drive/estop":
             if app.sentry and app.sentry.is_enabled():
                 app.sentry.disarm()
+            if getattr(app, "patterns", None):
+                app.patterns.stop("E-STOP")
             app.nav.stop()
             app.audio.stop()
             return {"ok": True, "drive": app.drive.estop()}
@@ -276,6 +286,8 @@ class TelemetryServer:
                     return {"ok": False, "error": "Disarm Sentry Mode before arming motors"}
                 if data["armed"] and app.imu_state.get("tilt_fault"):
                     return {"ok": False, "error": "Cannot arm while cone is tilted!"}
+                if (not data["armed"]) and getattr(app, "patterns", None) and app.patterns.is_active():
+                    app.patterns.stop("Motors disarmed")
                 app.drive.set_armed(data["armed"])
             if "speed_mode" in data:
                 app.drive.set_speed_mode(data["speed_mode"])
@@ -355,6 +367,9 @@ class TelemetryServer:
                     return {"ok": False, "error": "Disarm Sentry Mode before starting mission"}
                 if not gps_st.get("has_fix"):
                     return {"ok": False, "error": "Cannot start mission without GNSS lock"}
+                if getattr(app, "patterns", None) and app.patterns.is_active():
+                    app.patterns.stop("GNSS mission started")
+                    app.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
                 res = app.nav.start(current_heading_deg=hdg)
                 led_cmd = app.nav.pop_light_cmd()
                 if led_cmd and app.yukon.is_main_output_enabled():
@@ -371,6 +386,9 @@ class TelemetryServer:
                     return {"ok": False, "error": "Disarm Sentry Mode before starting RTH"}
                 if not gps_st.get("has_fix"):
                     return {"ok": False, "error": "Cannot RTH without GNSS lock"}
+                if getattr(app, "patterns", None) and app.patterns.is_active():
+                    app.patterns.stop("RTH started")
+                    app.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
                 res = app.nav.return_to_home(current_heading_deg=hdg)
             elif act == "config":
                 res = app.nav.configure(
@@ -415,6 +433,46 @@ class TelemetryServer:
         if path == "/api/ota/reboot":
             asyncio.create_task(self._deferred_reboot())
             return {"ok": True}
+
+        if path == "/api/routines/start":
+            patterns = getattr(app, "patterns", None)
+            if patterns is None:
+                return {"ok": False, "error": "Pattern runner unavailable", "_status": (503, "Service Unavailable")}
+            if not getattr(app, "drive", None) or not app.drive.armed:
+                return {
+                    "ok": False,
+                    "error": "Motors must be explicitly armed before starting a routine",
+                    "_status": (409, "Conflict"),
+                }
+            if getattr(app, "sentry", None) and app.sentry.is_enabled():
+                return {"ok": False, "error": "Disarm Sentry Mode before starting a routine", "_status": (409, "Conflict")}
+            imu_st = getattr(app, "imu_state", None)
+            if isinstance(imu_st, dict):
+                if imu_st.get("tilt_fault"):
+                    return {"ok": False, "error": "Cannot start routine while cone is tilted", "_status": (409, "Conflict")}
+                if not imu_st.get("online", True):
+                    return {"ok": False, "error": "9DoF IMU offline — cannot run dead-reckoning routine", "_status": (409, "Conflict")}
+            if getattr(app, "battery", None) and app.battery.get_status().get("is_critical"):
+                return {"ok": False, "error": "Critical battery cutoff active", "_status": (409, "Conflict")}
+            if getattr(app, "nav", None) and app.nav.is_active():
+                app.nav.pause("Routine started")
+                app.drive.set_auto_twist(0.0, 0.0, 0.0, active=False)
+            params = data.get("params") if isinstance(data.get("params"), dict) else data
+            st = patterns.start(
+                data.get("routine", ""),
+                preset=data.get("preset", "indoor"),
+                params=params,
+            )
+            return {"ok": True, "routines": st}
+
+        if path == "/api/routines/stop":
+            patterns = getattr(app, "patterns", None)
+            if patterns is None:
+                return {"ok": False, "error": "Pattern runner unavailable", "_status": (503, "Service Unavailable")}
+            st = patterns.stop("Operator stopped")
+            if getattr(app, "drive", None) is not None and hasattr(app.drive, "set_routine_wheels"):
+                app.drive.set_routine_wheels(0.0, 0.0, 0.0, active=False)
+            return {"ok": True, "routines": st}
 
         if path == "/api/sentry":
             if not app.sentry:

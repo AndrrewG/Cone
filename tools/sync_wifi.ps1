@@ -35,6 +35,8 @@ $filesToSync = @(
     @{ Local = "drivers\sentry.py";            Remote = "drivers/sentry.py" },
     @{ Local = "security\__init__.py";         Remote = "security/__init__.py" },
     @{ Local = "security\auth_manager.py";     Remote = "security/auth_manager.py" },
+    @{ Local = "nav\__init__.py";              Remote = "nav/__init__.py" },
+    @{ Local = "nav\pattern_runner.py";        Remote = "nav/pattern_runner.py" },
     @{ Local = "telemetry_server.py";          Remote = "telemetry_server.py" },
     @{ Local = "web\auth.js";                  Remote = "web/auth.js" },
     @{ Local = "web\index.html";               Remote = "web/index.html" },
