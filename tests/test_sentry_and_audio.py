@@ -557,6 +557,68 @@ class TestChassisGeometryAndImuMounting(unittest.TestCase):
         self.assertAlmostEqual(my, +15.0, places=2)
         self.assertAlmostEqual(mz, +7.5, places=2)
 
+    def test_wifi_sta_connect_disables_cyw43_dtim_power_save(self):
+        import types
+        net_mod = types.ModuleType("network")
+
+        class _FakeWlan:
+            STA_IF = 0
+            AP_IF = 1
+            PM_NONE = 0xA11140
+            PM_PERFORMANCE = 0xA11142
+            instances = []
+
+            def __init__(self, iface):
+                self.iface = iface
+                self.pm_calls = []
+                self.connected = False
+                _FakeWlan.instances.append(self)
+
+            def active(self, val=None):
+                return True
+
+            def config(self, *args, **kwargs):
+                if args and args[0] == "mac":
+                    return b"\x28\xcd\xc1\x01\x02\x03"
+                if "pm" in kwargs:
+                    self.pm_calls.append(kwargs["pm"])
+
+            def scan(self):
+                return [(b"HomeLAN", b"", 6, -52, 3, 1)]
+
+            def connect(self, ssid, pwd):
+                self.connected = True
+
+            def isconnected(self):
+                return self.connected
+
+            def ifconfig(self):
+                return ("192.168.50.13", "255.255.255.0", "192.168.50.1", "192.168.50.1")
+
+            def status(self, key):
+                return -52
+
+        net_mod.STA_IF = 0
+        net_mod.AP_IF = 1
+        net_mod.WLAN = _FakeWlan
+        old_net = sys.modules.get("network")
+        sys.modules["network"] = net_mod
+        sys.modules.pop("drivers.wifi_manager", None)
+        try:
+            from drivers.wifi_manager import ConeWiFi
+            cw = ConeWiFi()
+            cw._load_configured_networks = lambda: [("HomeLAN", "pw12345678")]
+            st = cw.connect_or_start_ap()
+            self.assertEqual(st["mode"], "STA")
+            self.assertIn(0xA11140, _FakeWlan.instances[0].pm_calls)
+            self.assertEqual(_FakeWlan.instances[0].pm_calls[-1], 0xA11140)
+        finally:
+            if old_net is None:
+                sys.modules.pop("network", None)
+            else:
+                sys.modules["network"] = old_net
+            sys.modules.pop("drivers.wifi_manager", None)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,10 @@ class ConeWiFi:
             self._sta = network.WLAN(network.STA_IF)
             self._sta.active(True)
             try:
+                self._sta.config(pm=getattr(network.WLAN, "PM_NONE", 0xA11140))
+            except Exception:
+                pass
+            try:
                 self.mac = ":".join("{:02X}".format(b) for b in self._sta.config("mac"))
             except Exception:
                 pass
@@ -99,6 +103,7 @@ class ConeWiFi:
                     self.mode = "STA"
                     self.ssid = ssid
                     self.ip = self._sta.ifconfig()[0]
+                    self.set_power_save(False)
                     print("[Wi-Fi] Connected! SSID='{}' | URL: http://{}/".format(self.ssid, self.ip))
                     return self.get_status()
 
