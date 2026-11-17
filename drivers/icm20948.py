@@ -52,6 +52,7 @@ class ICM20948:
         cal_file="compass_cal.json",
         declination_deg=0.0,
         max_tilt_deg=40.0,
+        mount_yaw_deg=0.0,
     ):
         self.i2c = i2c
         self.address = address
@@ -59,6 +60,10 @@ class ICM20948:
         self.cal_file = cal_file
         self.declination_deg = float(declination_deg)
         self.max_tilt_deg = float(max_tilt_deg)
+        self.mount_yaw_deg = float(mount_yaw_deg)
+        yaw_rad = math.radians(self.mount_yaw_deg)
+        self._cos_m = math.cos(yaw_rad)
+        self._sin_m = math.sin(yaw_rad)
         self._current_bank = -1
 
         # Verify ICM-20948
@@ -172,10 +177,12 @@ class ICM20948:
             if st2 & 0x08:  # Magnetic sensor overflow (HOFL)
                 return None
             rx, ry, rz = struct.unpack("<hhh", buf[1:7])
-            # Align AK09916 die frame -> ICM-20948 accel/gyro frame
-            mx = rx * self.MAG_SCALE_UT
-            my = -ry * self.MAG_SCALE_UT
+            # Align AK09916 die frame -> ICM-20948 die frame -> Cone body frame
+            dx = rx * self.MAG_SCALE_UT
+            dy = -ry * self.MAG_SCALE_UT
             mz = -rz * self.MAG_SCALE_UT
+            mx = dx * self._cos_m - dy * self._sin_m
+            my = dx * self._sin_m + dy * self._cos_m
             return (mx, my, mz)
         except OSError:
             return None
@@ -257,15 +264,20 @@ class ICM20948:
         self._set_bank(0)
         data = self.i2c.readfrom_mem(self.address, self.REG_ACCEL_XOUT_H, 14)
         ax, ay, az, gx, gy, gz, t = struct.unpack(">hhhhhhh", data)
+        dax = ax / self.ACCEL_SCALE_2G
+        day = ay / self.ACCEL_SCALE_2G
+        dgx = gx / self.GYRO_SCALE_250
+        dgy = gy / self.GYRO_SCALE_250
+        cm, sm = self._cos_m, self._sin_m
         return {
             "accel": (
-                ax / self.ACCEL_SCALE_2G,
-                ay / self.ACCEL_SCALE_2G,
+                dax * cm - day * sm,
+                dax * sm + day * cm,
                 az / self.ACCEL_SCALE_2G,
             ),
             "gyro": (
-                gx / self.GYRO_SCALE_250,
-                gy / self.GYRO_SCALE_250,
+                dgx * cm - dgy * sm,
+                dgx * sm + dgy * cm,
                 gz / self.GYRO_SCALE_250,
             ),
             "temp": (t / 333.87) + 21.0,
@@ -297,11 +309,16 @@ class ICM20948:
             data = self.i2c.readfrom_mem(self.address, self.REG_ACCEL_XOUT_H, 14)
             ax, ay, az, gx, gy, gz, t = struct.unpack(">hhhhhhh", data)
 
-        self.ax_g = ax / self.ACCEL_SCALE_2G
-        self.ay_g = ay / self.ACCEL_SCALE_2G
+        dax = ax / self.ACCEL_SCALE_2G
+        day = ay / self.ACCEL_SCALE_2G
+        dgx = gx / self.GYRO_SCALE_250
+        dgy = gy / self.GYRO_SCALE_250
+        cm, sm = self._cos_m, self._sin_m
+        self.ax_g = dax * cm - day * sm
+        self.ay_g = dax * sm + day * cm
         self.az_g = az / self.ACCEL_SCALE_2G
-        self.gx_dps = gx / self.GYRO_SCALE_250
-        self.gy_dps = gy / self.GYRO_SCALE_250
+        self.gx_dps = dgx * cm - dgy * sm
+        self.gy_dps = dgx * sm + dgy * cm
         self.gz_dps = gz / self.GYRO_SCALE_250
         self.temp_c = (t / 333.87) + 21.0
         self.heading_deg = (self.heading_deg - self.gz_dps * dt) % 360.0

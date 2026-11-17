@@ -216,6 +216,7 @@ class ConeApp:
             wheel_radius_m=config.WHEEL_RADIUS_M,
             base_radius_m=config.ROBOT_BASE_RADIUS_M,
             max_speed_mps=config.MAX_LINEAR_SPEED_MPS,
+            wheel_angles_deg=config.WHEEL_ANGLES_DEG,
         )
         self.drive = DriveController(
             self.yukon,
@@ -226,6 +227,7 @@ class ConeApp:
             default_mode=config.DEFAULT_SPEED_MODE,
             slew_per_sec=config.DRIVE_SLEW_PER_SEC,
             deadman_ms=config.DEADMAN_TIMEOUT_MS,
+            motor_polarity=config.MOTOR_POLARITY,
         )
         self.nav = WaypointNavigator(
             state_file=config.MISSION_STATE_FILE,
@@ -248,6 +250,7 @@ class ConeApp:
                     cal_file=config.COMPASS_CAL_FILE,
                     declination_deg=config.COMPASS_DECLINATION_DEG,
                     max_tilt_deg=config.MAX_SAFE_TILT_DEG,
+                    mount_yaw_deg=config.IMU_MOUNT_YAW_DEG,
                 )
                 self.imu_state = self.imu.update_ahrs()
                 print(

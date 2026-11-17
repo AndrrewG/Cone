@@ -43,7 +43,9 @@ The `ICM-20948` 9DoF breakout (`drivers/icm20948.py`) combines a 6-axis MEMS acc
    * After applying hard-iron offsets and soft-iron chord scales from `/compass_cal.json` and tilt-compensating `(mx_ut, my_ut, mz_ut)` by `(pitch_deg, roll_deg)` onto the horizontal plane `(mx_h, my_h)`, clockwise magnetic heading is computed as:
      * `mag_heading_deg = (degrees(atan2(-my_h, mx_h)) + declination_deg) % 360.0`
    * Fused AHRS heading blends `94%` gyro prediction with `6%` tilt-compensated magnetometer heading per `100 ms` update.
-3. **Physical Breakout-to-Chassis Nose Alignment:** **`[TBD — verify on bench]`** — The `ICM-20948` breakout is soldered to the Yukon I2C bus and bench-tested, but final mechanical orientation of the breakout's silkscreen `+X` arrow relative to the 3D-printed cone's `+X` front nose must be verified when the chassis bracket is assembled.
+3. **Physical Breakout-to-Chassis Nose Alignment (`[INSTALLED]` — CAD Verified, Bench Tilt Check Pending):**
+   * Viewed from above (`+Z` out of page, front flat ToF bezel at the bottom of `pics/IMU Location.jpg`, `+X` Forward down, `+Y` Left to the right toward the `XT30` connector), both the Pimoroni Yukon PCB and the `ICM-20948` breakout sit flat horizontally (`+Z_die = +Z_body`), with the `ICM-20948` 5-pin header on the `-Y` left edge of the Yukon PCB and its silkscreen text upright to read (`x_m ≈ 0.000 m`, `y_m ≈ -0.025 m` toward Starboard / speaker side; centripetal acceleration offset `< 0.025 g` at `180 dps`).
+   * Configured via `IMU_MOUNT_YAW_DEG = 90.0 deg` (`config.py`, `drivers/icm20948.py`: `x_body = -y_die`, `y_body = +x_die`, `z_body = +z_die`); verify pitch vs roll sign with a quick nose-down tilt once bolted in.
 
 ---
 
@@ -69,8 +71,8 @@ All subsystems in this section are physically purchased (`BOM #PI796120`), suppo
 
 | Yukon Slot | Installed Module | RP2040 Fast Pins (`FAST1..FAST4`) | `TCA9555` Slow Pins (`SLOW1..SLOW3`) | Status & Environment |
 | :--- | :--- | :--- | :--- | :--- |
-| **Slot 1** | `DualMotorModule` #1 (`DRV8424P`) | `GPIO0`, `GPIO1`, `GPIO2`, `GPIO3` | `EXT_GPIO3`, `EXT_GPIO4`, `EXT_GPIO5` | `[INSTALLED]` — Indoor & Outdoor (M1 motor wired on bench; M2 pending chassis) |
-| **Slot 2** | `DualMotorModule` #2 (`DRV8424P`) | `GPIO4`, `GPIO5`, `GPIO6`, `GPIO7` | `EXT_GPIO0`, `EXT_GPIO1`, `EXT_GPIO2` | `[INSTALLED]` — Indoor & Outdoor (M1 pending chassis; M2 spare) |
+| **Slot 1** | `DualMotorModule` #1 (`DRV8424P`) | `GPIO0`, `GPIO1`, `GPIO2`, `GPIO3` | `EXT_GPIO3`, `EXT_GPIO4`, `EXT_GPIO5` | `[INSTALLED]` — Wheel A (`M1`, Front-Left `+60 deg`) & Wheel B (`M2`, Front-Right `300 deg`) |
+| **Slot 2** | `DualMotorModule` #2 (`DRV8424P`) | `GPIO4`, `GPIO5`, `GPIO6`, `GPIO7` | `EXT_GPIO0`, `EXT_GPIO1`, `EXT_GPIO2` | `[INSTALLED]` — Wheel C (`M1`, Rear `180 deg`); `M2` spare |
 | **Slot 3** | *Unpopulated* | `GPIO8`, `GPIO9`, `GPIO10`, `GPIO11` | `EXT_GPIO8`, `EXT_GPIO9`, `EXT_GPIO10` | Empty — Reserved for future expansion |
 | **Slot 4** | `LEDStripModule` (`WS2812` + `5 V` Buck) | `GPIO12`, `GPIO13`, `GPIO14`, `GPIO15` | `EXT_GPIO23`, `EXT_GPIO21`, `EXT_GPIO22` | `[INSTALLED]` — Indoor & Outdoor |
 | **Slot 5** | `RM2WirelessModule` (`CYW43439`) | `GPIO16`, `GPIO17`, `GPIO18`, `GPIO19` | `EXT_GPIO31`, `EXT_GPIO30`, `EXT_GPIO29` | `[INSTALLED]` — Indoor & Outdoor (Mandatory Slot 5) |
@@ -96,20 +98,24 @@ All subsystems in this section are physically purchased (`BOM #PI796120`), suppo
 
 * **Traction Motors:** 3× **`JGA25-370DG`** brushed DC gearmotors (`12 V` nominal, `427 RPM` no-load speed).
 * **Motor Driver Modules:** 2× Pimoroni **Dual Motor / Bipolar Stepper Modules** (`TI DRV8424P` H-bridges, `25000 Hz` PWM, `70.0 °C` thermal trip):
-  * **Wheel 1 (Channel 1 — `Slot 1, Motor 1`):** `PWM_N = GPIO0` (`SLOT1_FAST1`), `PWM_P = GPIO1` (`SLOT1_FAST2`). *(Physically bench-tested in `motor_test.py`.)*
-  * **Wheel 2 (Channel 2 — `Slot 1, Motor 2`):** `PWM_N = GPIO2` (`SLOT1_FAST3`), `PWM_P = GPIO3` (`SLOT1_FAST4`). *(Driver verified; motor leads pending 3D-printed chassis.)*
-  * **Wheel 3 (Channel 3 — `Slot 2, Motor 1`):** `PWM_N = GPIO4` (`SLOT2_FAST1`), `PWM_P = GPIO5` (`SLOT2_FAST2`). *(Driver verified; motor leads pending 3D-printed chassis.)*
+  * **Wheel A (Channel 1 — `Slot 1, Motor 1`, Front-Left `+60.0 deg`):** `PWM_N = GPIO0` (`SLOT1_FAST1`), `PWM_P = GPIO1` (`SLOT1_FAST2`).
+  * **Wheel B (Channel 2 — `Slot 1, Motor 2`, Front-Right `300.0 deg` / `-60.0 deg`):** `PWM_N = GPIO2` (`SLOT1_FAST3`), `PWM_P = GPIO3` (`SLOT1_FAST4`).
+  * **Wheel C (Channel 3 — `Slot 2, Motor 1`, Rear `180.0 deg`):** `PWM_N = GPIO4` (`SLOT2_FAST1`), `PWM_P = GPIO5` (`SLOT2_FAST2`).
   * **Spare Channel (`Slot 2, Motor 2`):** `PWM_N = GPIO6` (`SLOT2_FAST3`), `PWM_P = GPIO7` (`SLOT2_FAST4`) — unallocated.
   * **H-Bridge Enable & Current Regulation:**
     * Slot 1: `MOTORS_EN = EXT_GPIO5` (`SLOW3`), `VREF1 = EXT_GPIO3` (`SLOW1`), `VREF2 = EXT_GPIO4` (`SLOW2`), `nFAULT = ADC1` (`mux 0`), `TEMP = ADC2` (`mux 3`).
     * Slot 2: `MOTORS_EN = EXT_GPIO2` (`SLOW3`), `VREF1 = EXT_GPIO0` (`SLOW1`), `VREF2 = EXT_GPIO1` (`SLOW2`), `nFAULT = ADC1` (`mux 1`), `TEMP = ADC2` (`mux 6`).
     * Configured `MOTOR_CURRENT_LIMIT_AMPS = 1.0 A` (`config.py`), which selects the discrete `DRV8424P` step **`0.786 A`** (`CURRENT_LIMIT_4`; setting `1.2 A` selects `1.143 A` if required under full cone mass).
 * **Kinematic Geometry & Control Limits (`config.py`, `drivers/omni_kinematics.py`, `drivers/drive_controller.py`):**
-  * **`wheel_radius_m`:** **`0.029 m`** (`58.0 mm` diameter omni-wheels; confirmed from hardware BOM).
-  * **`chassis_radius_m`:** **`0.090 m` software placeholder** (`ROBOT_BASE_RADIUS_M = 0.090` in `config.py`) — **`[TBD — verify on bench]`** once the 3D-printed equilateral triangle base is fabricated and measured from chassis centre to wheel contact plane.
+  * **`wheel_radius_m`:** **`0.029 m`** (`58.0 mm` diameter, `25.0 mm` width omni-wheels; confirmed from BOM & CAD).
+  * **`chassis_radius_m`:** **`0.12088 m`** (`120.877 mm` mid-plane wheel contact radius derived from CAD measurements: `108.378 mm` inner wheel face, `133.375 mm` outer wheel face; `ROBOT_BASE_RADIUS_M = 0.12088` in `config.py`).
   * **`max_linear_speed_mps`:** **`1.297 m/s`** theoretical unloaded wheel rim speed (`(427 / 60) * pi * 0.058`), scaled by operator speed caps (`indoor = 0.35`, `normal = 0.65`, `turbo = 1.00`), normalized wheel slew rate `2.8 /s`, and `deadman_timeout_ms = 650 ms`. Motors always boot **disarmed** (`armed = False`).
-  * **Wheel Mounting Angles (`wheel_angles_deg` / `wheel_angles_rad`):** Currently coded in `Omni3Kinematics` as **`30.0 deg` (`0.5236 rad`, Wheel 1), `150.0 deg` (`2.6180 rad`, Wheel 2), and `270.0 deg` (`4.7124 rad`, Wheel 3)** with inverse kinematics `v_i = -sin(alpha_i) * vx + cos(alpha_i) * vy + chassis_radius_m * omega` — **`[TBD — verify on bench]`** (Note: in `(+X fwd, +Y left)` coordinates, `-sin(270 deg) * vx = +vx`, which places Wheel 3's rolling axis parallel to `+X` rather than perpendicular at the rear vertex; exact vertex azimuths and equation signs must be verified on the physical 3-wheel base).
-  * **Motor Polarities (`motor_polarity`):** Currently implicit **`(+1, +1, +1)`** (no per-wheel inversion flags defined yet in `config.py`) — **`[TBD — verify on bench]`** when Motors 1–3 are wired into the printed chassis.
+  * **Wheel Mounting Angles (`WHEEL_ANGLES_DEG`):** Verified from CAD (`pics/Bottom view Motor Definition.jpg` & `pics/IMU Location.jpg`, `+X` Forward out through the flat front ToF bezel, `+Y` Left toward the `XT30` / LiPo lead flank, `+Z` Up):
+    * **Wheel A (Ch 1 — `Slot 1, Motor 1`, Front-Left):** **`60.0 deg`** (`1.0472 rad`)
+    * **Wheel B (Ch 2 — `Slot 1, Motor 2`, Front-Right):** **`300.0 deg`** (`-60.0 deg`, `5.2360 rad`)
+    * **Wheel C (Ch 3 — `Slot 2, Motor 1`, Rear vertex):** **`180.0 deg`** (`3.1416 rad`; rolling axis along `±Y`, zero spin during pure `+X` surge)
+    * Inverse kinematics: `v_i = -sin(alpha_i) * vx + cos(alpha_i) * vy + chassis_radius_m * omega`.
+  * **Motor Polarities (`MOTOR_POLARITY`):** Configurable 3-tuple **`(1, 1, 1)`** in `config.py` applied at the `DRV8424P` H-bridge stage in `DriveController`. All 3 motors are mounted with identical `C3` radial symmetry (gearboxes pointing radially inward) and wired identically, so bench verification will select either `(1, 1, 1)` or `(-1, -1, -1)` uniformly.
 
 ### 2.5 50-LED Addressable Ring / Warning Array (`[INSTALLED]`)
 

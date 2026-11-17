@@ -11,19 +11,25 @@
 import math
 
 class Omni3Kinematics:
-    def __init__(self, wheel_radius_m=0.029, base_radius_m=0.090, max_speed_mps=0.5):
-        self.r = wheel_radius_m     # Wheel radius
-        self.R = base_radius_m      # Distance from center of robot to wheels
+    def __init__(
+        self,
+        wheel_radius_m=0.029,
+        base_radius_m=0.12088,
+        max_speed_mps=0.5,
+        wheel_angles_deg=(60.0, 300.0, 180.0),
+    ):
+        self.r = wheel_radius_m     # Wheel radius (m)
+        self.R = base_radius_m      # Mid-plane centre-to-wheel contact radius (m)
         self.max_speed = max_speed_mps
 
-        # Wheel mounting angles (radians) around the perimeter:
-        # Wheel 1: Front-Right (+30 deg)
-        # Wheel 2: Front-Left  (+150 deg)
-        # Wheel 3: Rear        (+270 deg / -90 deg)
+        # Wheel contact azimuths (CCW from +X Forward nose, +Y Left, +Z Up):
+        # Wheel A (Ch 1, Slot 1 M1): Front-Left  (+60 deg)
+        # Wheel B (Ch 2, Slot 1 M2): Front-Right (300 deg / -60 deg)
+        # Wheel C (Ch 3, Slot 2 M1): Rear vertex (180 deg)
         self.angles = [
-            math.radians(30.0),
-            math.radians(150.0),
-            math.radians(270.0)
+            math.radians(wheel_angles_deg[0]),
+            math.radians(wheel_angles_deg[1]),
+            math.radians(wheel_angles_deg[2]),
         ]
 
     def set_wheel_angles(self, deg1, deg2, deg3):

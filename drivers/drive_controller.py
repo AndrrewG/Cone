@@ -23,6 +23,7 @@ class DriveController:
         default_mode="indoor",
         slew_per_sec=2.8,
         deadman_ms=650,
+        motor_polarity=(1, 1, 1),
     ):
         self.yukon = yukon
         self.m1 = motor_mod1
@@ -32,6 +33,9 @@ class DriveController:
         self.speed_mode = default_mode if default_mode in speed_modes else "indoor"
         self.slew_per_sec = float(slew_per_sec)
         self.deadman_ms = int(deadman_ms)
+        self._pol0 = -1.0 if motor_polarity[0] < 0 else 1.0
+        self._pol1 = -1.0 if motor_polarity[1] < 0 else 1.0
+        self._pol2 = -1.0 if motor_polarity[2] < 0 else 1.0
 
         self.armed = False
         self.estop_latched = False
@@ -275,8 +279,8 @@ class DriveController:
         if need_m1:
             if not self.m1.is_enabled():
                 self.m1.enable()
-            self.m1.motor1.speed(self.current_wheels[0])
-            self.m1.motor2.speed(self.current_wheels[1])
+            self.m1.motor1.speed(self.current_wheels[0] * self._pol0)
+            self.m1.motor2.speed(self.current_wheels[1] * self._pol1)
         elif self.m1.is_enabled():
             self.m1.motor1.stop()
             self.m1.motor2.stop()
@@ -285,7 +289,7 @@ class DriveController:
         if need_m2:
             if not self.m2.is_enabled():
                 self.m2.enable()
-            self.m2.motor1.speed(self.current_wheels[2])
+            self.m2.motor1.speed(self.current_wheels[2] * self._pol2)
         elif self.m2.is_enabled():
             self.m2.motor1.stop()
             self.m2.disable()

@@ -427,5 +427,136 @@ class SentryAndAudioTests(unittest.TestCase):
         self.assertEqual(gps.buffer, "")
 
 
+class TestChassisGeometryAndImuMounting(unittest.TestCase):
+    def test_cad_chassis_geometry_wheel_angles_and_motor_polarity(self):
+        import math
+        import config
+        from drivers.omni_kinematics import Omni3Kinematics
+        from drivers.drive_controller import DriveController
+
+        self.assertAlmostEqual(config.ROBOT_BASE_RADIUS_M, 0.12088, places=5)
+        self.assertEqual(config.WHEEL_ANGLES_DEG, (60.0, 300.0, 180.0))
+
+        kin = Omni3Kinematics(
+            wheel_radius_m=config.WHEEL_RADIUS_M,
+            base_radius_m=config.ROBOT_BASE_RADIUS_M,
+            max_speed_mps=config.MAX_LINEAR_SPEED_MPS,
+            wheel_angles_deg=config.WHEEL_ANGLES_DEG,
+        )
+        # Pure forward surge (+X): Wheel A (FL) < 0, Wheel B (FR) > 0, Wheel C (Rear) == 0
+        wa, wb, wc = kin.compute_wheel_speeds(1.0, 0.0, 0.0)
+        self.assertAlmostEqual(wa, -math.sqrt(3.0) * 0.5, places=5)
+        self.assertAlmostEqual(wb, +math.sqrt(3.0) * 0.5, places=5)
+        self.assertAlmostEqual(wc, 0.0, places=5)
+
+        # Pure leftward sway (+Y): Wheel A == +0.5, Wheel B == +0.5, Wheel C == -1.0
+        wa_y, wb_y, wc_y = kin.compute_wheel_speeds(0.0, 1.0, 0.0)
+        self.assertAlmostEqual(wa_y, 0.5, places=5)
+        self.assertAlmostEqual(wb_y, 0.5, places=5)
+        self.assertAlmostEqual(wc_y, -1.0, places=5)
+
+        # Pure CCW spin (+omega): all 3 radially symmetric wheels receive identical +R*omega
+        wa_r, wb_r, wc_r = kin.compute_wheel_speeds(0.0, 0.0, 2.0)
+        self.assertAlmostEqual(wa_r, wb_r, places=6)
+        self.assertAlmostEqual(wb_r, wc_r, places=6)
+        self.assertAlmostEqual(wa_r, 2.0 * 0.12088, places=5)
+
+        # Verify DriveController motor_polarity inverts H-bridge outputs cleanly
+        class _Chan:
+            def __init__(self):
+                self.spd = 0.0
+            def speed(self, v):
+                self.spd = v
+            def stop(self):
+                self.spd = 0.0
+
+        class _Mod:
+            def __init__(self):
+                self.motor1 = _Chan()
+                self.motor2 = _Chan()
+                self.en = False
+            def enable(self):
+                self.en = True
+            def disable(self):
+                self.en = False
+            def is_enabled(self):
+                return self.en
+
+        m1, m2 = _Mod(), _Mod()
+        drv = DriveController(
+            FakeYukon(main_on=True),
+            m1,
+            m2,
+            kinematics=kin,
+            speed_modes={"indoor": 0.35},
+            slew_per_sec=100.0,
+            motor_polarity=(-1, -1, -1),
+        )
+        drv.set_armed(True)
+        drv.set_routine_wheels(0.4, -0.3, 0.2, active=True)
+        drv._last_tick_ms = time.ticks_ms() - 50
+        drv.tick(safety_ok=True)
+        self.assertAlmostEqual(m1.motor1.spd, -0.4, places=4)
+        self.assertAlmostEqual(m1.motor2.spd, +0.3, places=4)
+        self.assertAlmostEqual(m2.motor1.spd, -0.2, places=4)
+
+    def test_icm20948_mount_yaw_90_deg_body_frame_remap(self):
+        import struct
+        from drivers.icm20948 import ICM20948
+
+        class _MockImuI2C:
+            def __init__(self):
+                # Die sees: ax_die=0, ay_die=-0.5g (cone pitched nose UP: x_body = -ay_die = +0.5g), az_die=+0.866g
+                self.accel_gyro = struct.pack(
+                    ">hhhhhhh",
+                    0,
+                    int(-0.5 * 16384),
+                    int(0.866 * 16384),
+                    0,
+                    int(-20.0 * 131.0),
+                    int(45.0 * 131.0),
+                    0,
+                )
+                # AK09916 raw: rx=+100 (dx=+15 uT -> my_body=+15 uT), ry=+200 (dy=-30 uT -> mx_body=+30 uT)
+                self.mag_frame = bytes([0x01]) + struct.pack("<hhh", 100, 200, -50) + bytes([0x00, 0x00])
+
+            def writeto_mem(self, addr, reg, data):
+                pass
+
+            def readfrom_mem(self, addr, reg, n):
+                if addr == 0x68 and reg == 0x00:
+                    return bytes([0xEA])
+                if addr == 0x68 and reg == 0x03:
+                    return bytes([0x00])
+                if addr == 0x0C and reg == 0x01:
+                    return bytes([0x09])
+                if addr == 0x68 and reg == 0x2D:
+                    return self.accel_gyro
+                if addr == 0x0C and reg == 0x10:
+                    return self.mag_frame
+                return bytes(n)
+
+            def readfrom_mem_into(self, addr, reg, buf):
+                buf[:] = self.accel_gyro
+
+        imu = ICM20948(_MockImuI2C(), mount_yaw_deg=90.0)
+        d = imu.read_all()
+        self.assertAlmostEqual(d["accel"][0], +0.5, places=2)
+        self.assertAlmostEqual(d["accel"][1], 0.0, places=2)
+        self.assertAlmostEqual(d["accel"][2], +0.866, places=2)
+        self.assertAlmostEqual(d["gyro"][0], +20.0, places=1)
+        self.assertAlmostEqual(d["gyro"][2], +45.0, places=1)
+
+        imu._last_update_ms = time.ticks_ms() - 20
+        imu.step_fast_50hz()
+        self.assertAlmostEqual(imu.ax_g, +0.5, places=2)
+        self.assertAlmostEqual(imu.gz_dps, +45.0, places=1)
+
+        mx, my, mz = imu.read_mag_raw_ut()
+        self.assertAlmostEqual(mx, +30.0, places=2)
+        self.assertAlmostEqual(my, +15.0, places=2)
+        self.assertAlmostEqual(mz, +7.5, places=2)
+
+
 if __name__ == "__main__":
     unittest.main()
