@@ -82,7 +82,7 @@
   - Implement the **`compass_box`** locked-heading square strafe (`+X` $\rightarrow$ `-Y` $\rightarrow$ `-X` $\rightarrow$ `+Y`) + `POST /api/routines/start` & `POST /api/routines/stop` + live `(local_x_m, local_y_m)` telemetry fields.
   - **Verification:** Desktop `pytest` suite (`tests/test_pattern_runner.py`) verifying zero-GNSS local odometry, trapezoidal ramps, disarmed rejection, virtual leash halt, and `compass_box` leg transitions.
 
-- [ ] **Task 2.2 — Closed-Loop `circle` Routine & Centripetal Tip-Over Clamping (`nav/pattern_runner.py`):**
+- [x] **Task 2.2 — Closed-Loop `circle` Routine & Centripetal Tip-Over Clamping ([pattern_runner.py](nav/pattern_runner.py)):**
   - Implement `circle(radius_m, laps, direction, speed_mps, orientation_mode)` with closed-loop radial restoring velocity $v_{\text{radial}} = K_r (r_{\text{target}} - r_{\text{actual}})$, `"cw"` / `"ccw"` orbit direction, `"pulse"` LEDs, and all four holonomic orientation modes (`"tangent"`, `"compass_locked"`, `"orbit_inward"`, `"orbit_outward"`).
   - Enforce centripetal tip-over speed clamping $v_{\text{safe}} = \min\left(v_{\text{req}}, \sqrt{a_{c,\max} \cdot r}\right)$ across `"indoor"` and `"outdoor"` presets.
   - **Verification:** Desktop `pytest` tests verifying centripetal speed clamping on tight radii, radial drift correction, and all four orientation modes.

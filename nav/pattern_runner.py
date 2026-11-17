@@ -31,6 +31,21 @@ def wrap_angle_180_deg(angle_deg):
     return ((angle_deg + 180.0) % 360.0) - 180.0
 
 
+def _finite_float(val, name):
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise ValueError("{} must be a finite number".format(name))
+    f = float(val)
+    if math.isnan(f) or math.isinf(f):
+        raise ValueError("{} must be a finite number".format(name))
+    return f
+
+
+def _strict_int(val, name):
+    if isinstance(val, bool) or not isinstance(val, int):
+        raise ValueError("{} must be an integer".format(name))
+    return int(val)
+
+
 class PatternRunner:
     TICK_PERIOD_MS = 20
     NOMINAL_DT_S = 0.020
@@ -45,6 +60,7 @@ class PatternRunner:
             "alpha_dps2": 240.0,
             "default_speed_mps": 0.30,
             "default_side_m": 0.80,
+            "default_radius_m": 0.50,
         },
         "outdoor": {
             "max_speed_mps": 0.95,
@@ -54,6 +70,7 @@ class PatternRunner:
             "alpha_dps2": 240.0,
             "default_speed_mps": 0.55,
             "default_side_m": 1.50,
+            "default_radius_m": 1.20,
         },
     }
 
@@ -68,16 +85,18 @@ class PatternRunner:
         sound_callback=None,
         kp_yaw_dps_per_deg=3.0,
         kd_yaw_s=0.06,
-        max_yaw_hold_dps=90.0,
+        max_yaw_hold_dps=180.0,
+        kr_radial_per_s=1.8,
     ):
         self.kin = kinematics
         self.imu = imu
         self.leds = led_controller
         self.range_provider = range_provider
         self.sound_callback = sound_callback
-        self.kp_yaw_dps_per_deg = float(kp_yaw_dps_per_deg)
-        self.kd_yaw_s = float(kd_yaw_s)
-        self.max_yaw_hold_dps = float(max_yaw_hold_dps)
+        self.kp_yaw_dps_per_deg = _finite_float(kp_yaw_dps_per_deg, "kp_yaw_dps_per_deg")
+        self.kd_yaw_s = _finite_float(kd_yaw_s, "kd_yaw_s")
+        self.max_yaw_hold_dps = _finite_float(max_yaw_hold_dps, "max_yaw_hold_dps")
+        self.kr_radial_per_s = _finite_float(kr_radial_per_s, "kr_radial_per_s")
 
         self._wp_x_m = array.array("f", [0.0] * self.MAX_VERTICES)
         self._wp_y_m = array.array("f", [0.0] * self.MAX_VERTICES)
@@ -105,6 +124,14 @@ class PatternRunner:
         self.stop_reason = ""
 
         self.side_length_m = 0.80
+        self.circle_radius_m = 0.50
+        self.circle_direction = "ccw"
+        self._circle_dir_sign = 1.0
+        self._circle_cx_m = 0.0
+        self._circle_cy_m = 0.50
+        self._circle_prev_phi_rad = -0.5 * math.pi
+        self._circle_accum_rad = 0.0
+
         self.speed_req_mps = 0.30
         self.laps = 1
         self.completed_laps = 0
@@ -145,10 +172,19 @@ class PatternRunner:
         g = getattr(self.imu, "last_gyro_dps", None)
         return float(g[2]) if (g and len(g) >= 3) else 0.0
 
-    def apply_preset(self, preset):
-        p_name = str(preset or "indoor").lower()
+    def _resolve_preset_name(self, preset):
+        if preset is None:
+            p_name = "indoor"
+        elif isinstance(preset, str):
+            p_name = preset.strip().lower()
+        else:
+            raise ValueError("Invalid preset: {}".format(preset))
         if p_name not in self.PRESETS:
             raise ValueError("Invalid preset: {}".format(preset))
+        return p_name
+
+    def apply_preset(self, preset):
+        p_name = self._resolve_preset_name(preset)
         cfg = self.PRESETS[p_name]
         self.preset = p_name
         self.max_speed_mps = cfg["max_speed_mps"]
@@ -159,14 +195,21 @@ class PatternRunner:
         return cfg
 
     def clamp_centripetal_speed(self, speed_req_mps, radius_m, a_c_max_mps2=None):
-        v_req = max(0.0, min(self.max_speed_mps, float(speed_req_mps)))
+        raw_v = _finite_float(speed_req_mps, "speed_req_mps")
+        ac_mps2 = (
+            self.a_c_max_mps2
+            if a_c_max_mps2 is None
+            else _finite_float(a_c_max_mps2, "a_c_max_mps2")
+        )
+        if ac_mps2 < 0.0:
+            raise ValueError("a_c_max_mps2 must be non-negative")
+        v_req = max(0.0, min(self.max_speed_mps, raw_v))
         if radius_m is None:
             return v_req
-        r_m = float(radius_m)
+        r_m = _finite_float(radius_m, "radius_m")
         if r_m <= 0.0:
             return 0.0
-        ac_mps2 = self.a_c_max_mps2 if a_c_max_mps2 is None else float(a_c_max_mps2)
-        v_tip_mps = math.sqrt(max(0.0, ac_mps2 * r_m))
+        v_tip_mps = math.sqrt(ac_mps2 * r_m)
         return v_req if v_req < v_tip_mps else v_tip_mps
 
     def is_active(self):
@@ -185,16 +228,30 @@ class PatternRunner:
         self._last_step_ms = _ticks_ms()
 
     def start(self, routine, preset="indoor", params=None):
-        r_name = str(routine or "").strip().lower()
-        cfg = self.apply_preset(preset)
+        if not isinstance(routine, str):
+            raise ValueError("Unsupported routine: {}".format(routine))
+        r_name = routine.strip().lower()
+        if params is not None and not isinstance(params, dict):
+            raise ValueError("params must be a dictionary")
+        p_name = self._resolve_preset_name(preset)
+        cfg = self.PRESETS[p_name]
         p = params if isinstance(params, dict) else {}
         if r_name == "compass_box":
             return self.start_compass_box(
                 side_length_m=p.get("side_length_m", cfg["default_side_m"]),
                 laps=p.get("laps", 1),
                 speed_mps=p.get("speed_mps", cfg["default_speed_mps"]),
-                preset=self.preset,
+                preset=p_name,
                 orientation_mode=p.get("orientation_mode", "compass_locked"),
+            )
+        if r_name == "circle":
+            return self.start_circle(
+                radius_m=p.get("radius_m", cfg["default_radius_m"]),
+                laps=p.get("laps", 1),
+                direction=p.get("direction", "ccw"),
+                speed_mps=p.get("speed_mps", cfg["default_speed_mps"]),
+                orientation_mode=p.get("orientation_mode", "tangent"),
+                preset=p_name,
             )
         raise ValueError("Unsupported routine: {}".format(routine))
 
@@ -206,20 +263,25 @@ class PatternRunner:
         preset=None,
         orientation_mode="compass_locked",
     ):
-        cfg = self.apply_preset(preset) if preset is not None else self.PRESETS[self.preset]
-        side_m = float(side_length_m)
+        p_name = self.preset if preset is None else self._resolve_preset_name(preset)
+        cfg = self.PRESETS[p_name]
+        side_m = _finite_float(side_length_m, "side_length_m")
         if side_m < 0.10 or side_m > 10.0:
             raise ValueError("side_length_m must be between 0.10 and 10.0 metres")
-        laps_i = int(laps)
+        laps_i = _strict_int(laps, "laps")
         if laps_i < 0 or laps_i > 100:
             raise ValueError("laps must be between 0 and 100")
-        orient = str(orientation_mode or "compass_locked").lower()
+        if not isinstance(orientation_mode, str):
+            raise ValueError("Invalid orientation_mode: {}".format(orientation_mode))
+        orient = orientation_mode.strip().lower()
         if orient not in self.ORIENTATION_MODES:
             raise ValueError("Invalid orientation_mode: {}".format(orientation_mode))
-        raw_spd = cfg["default_speed_mps"] if speed_mps is None else float(speed_mps)
+        raw_spd = cfg["default_speed_mps"] if speed_mps is None else _finite_float(speed_mps, "speed_mps")
         if raw_spd <= 0.0:
             raise ValueError("speed_mps must be positive")
 
+        if preset is not None:
+            self.apply_preset(p_name)
         gc.collect()
         self._anchor_origin()
         self._wp_x_m[0], self._wp_y_m[0] = side_m, 0.0
@@ -239,6 +301,76 @@ class PatternRunner:
         self._set_leds("beacon")
         self._emit_sound("ACK_MISSION_START")
         return self.get_status()
+
+    def start_circle(
+        self,
+        radius_m=None,
+        laps=1,
+        direction="ccw",
+        speed_mps=None,
+        orientation_mode="tangent",
+        preset=None,
+    ):
+        p_name = self.preset if preset is None else self._resolve_preset_name(preset)
+        cfg = self.PRESETS[p_name]
+        r_m = (
+            cfg["default_radius_m"]
+            if radius_m is None
+            else _finite_float(radius_m, "radius_m")
+        )
+        if r_m < 0.05 or r_m > 10.0:
+            raise ValueError("radius_m must be between 0.05 and 10.0 metres")
+        laps_i = _strict_int(laps, "laps")
+        if laps_i < 0 or laps_i > 100:
+            raise ValueError("laps must be between 0 and 100")
+        if not isinstance(direction, str):
+            raise ValueError("direction must be 'cw' or 'ccw'")
+        dir_s = direction.strip().lower()
+        if dir_s not in ("cw", "ccw"):
+            raise ValueError("direction must be 'cw' or 'ccw'")
+        if not isinstance(orientation_mode, str):
+            raise ValueError("Invalid orientation_mode: {}".format(orientation_mode))
+        orient = orientation_mode.strip().lower()
+        if orient not in self.ORIENTATION_MODES:
+            raise ValueError("Invalid orientation_mode: {}".format(orientation_mode))
+        raw_spd = (
+            cfg["default_speed_mps"]
+            if speed_mps is None
+            else _finite_float(speed_mps, "speed_mps")
+        )
+        if raw_spd <= 0.0:
+            raise ValueError("speed_mps must be positive")
+
+        if preset is not None:
+            self.apply_preset(p_name)
+        gc.collect()
+        self._anchor_origin()
+
+        dir_sign = 1.0 if dir_s == "ccw" else -1.0
+        self.circle_radius_m = r_m
+        self.circle_direction = dir_s
+        self._circle_dir_sign = dir_sign
+        self._circle_cx_m = 0.0
+        self._circle_cy_m = dir_sign * r_m
+        self._circle_prev_phi_rad = math.atan2(-dir_sign * r_m, 0.0)
+        self._circle_accum_rad = 0.0
+
+        self.speed_req_mps = self.clamp_centripetal_speed(raw_spd, r_m)
+        self.laps = laps_i
+        self.completed_laps = 0
+        self.leg_index = 0
+        self.orientation_mode = orient
+        self.psi_target_deg = self._compute_target_heading_deg(
+            1.0, 0.0, self._circle_cx_m, self._circle_cy_m
+        )
+        self.active_routine = "circle"
+        self.state = "RUNNING"
+        self._set_leds("pulse")
+        self._emit_sound("ACK_MISSION_START")
+        return self.get_status()
+
+    compass_box = start_compass_box
+    circle = start_circle
 
     def stop(self, reason="Operator stopped"):
         was_running = self.is_active()
@@ -260,14 +392,14 @@ class PatternRunner:
         if mode == "compass_locked":
             return self.psi_0_deg
         if mode == "tangent":
-            if vx_loc_mps * vx_loc_mps + vy_loc_mps * vy_loc_mps > 1e-5:
+            if vx_loc_mps * vx_loc_mps + vy_loc_mps * vy_loc_mps > 1e-9:
                 return (self.psi_0_deg - math.degrees(math.atan2(vy_loc_mps, vx_loc_mps))) % 360.0
             return self.psi_target_deg
         dx_m = cx_m - self.local_x_m
         dy_m = cy_m - self.local_y_m
         if mode == "orbit_outward":
             dx_m, dy_m = -dx_m, -dy_m
-        if dx_m * dx_m + dy_m * dy_m > 1e-5:
+        if dx_m * dx_m + dy_m * dy_m > 1e-9:
             return (self.psi_0_deg - math.degrees(math.atan2(dy_m, dx_m))) % 360.0
         return self.psi_target_deg
 
@@ -315,6 +447,81 @@ class PatternRunner:
         inv_r = spd_mps / rem_m
         return dx_m * inv_r, dy_m * inv_r, True
 
+    def _step_circle_local_vel(self):
+        rx_m = self.local_x_m - self._circle_cx_m
+        ry_m = self.local_y_m - self._circle_cy_m
+        r_actual_m = math.sqrt(rx_m * rx_m + ry_m * ry_m)
+
+        two_pi = 2.0 * math.pi
+        if r_actual_m > 1e-5:
+            phi_rad = math.atan2(ry_m, rx_m)
+            dphi_ccw_rad = ((phi_rad - self._circle_prev_phi_rad + math.pi) % two_pi) - math.pi
+            self._circle_prev_phi_rad = phi_rad
+            accum_rad = self._circle_accum_rad + (dphi_ccw_rad * self._circle_dir_sign)
+            if accum_rad < 0.0:
+                accum_rad = 0.0
+            self._circle_accum_rad = accum_rad
+            inv_r = 1.0 / r_actual_m
+            ux = rx_m * inv_r
+            uy = ry_m * inv_r
+        else:
+            accum_rad = self._circle_accum_rad
+            ux = 0.0
+            uy = -self._circle_dir_sign
+
+        full_laps = int(accum_rad // two_pi)
+        if self.laps > 0:
+            total_rad = float(self.laps) * two_pi
+            rem_rad = total_rad - accum_rad
+            rem_arc_m = rem_rad * self.circle_radius_m
+            if rem_rad <= 0.0 or rem_arc_m <= 0.015:
+                self.completed_laps = self.laps
+                self.routine_progress = 1.0
+                self.active_routine = None
+                self.state = "COMPLETED"
+                self.stop_reason = ""
+                self._emit_sound("EVENT_MISSION_COMPLETE")
+                return 0.0, 0.0, 0.0, False
+            if full_laps > self.completed_laps and full_laps < self.laps:
+                self.completed_laps = full_laps
+                self._emit_sound("ACK_COMMAND")
+            self.routine_progress = min(1.0, accum_rad / total_rad)
+            v_brake_mps = math.sqrt(2.0 * self.accel_mps2 * (rem_arc_m if rem_arc_m > 0.0 else 0.0))
+            crawl_mps = self.min_crawl_mps if self.min_crawl_mps < self.speed_req_mps else self.speed_req_mps
+            if v_brake_mps < crawl_mps:
+                v_brake_mps = crawl_mps
+            v_lim_mps = self.speed_req_mps if self.speed_req_mps < v_brake_mps else v_brake_mps
+        else:
+            if full_laps > self.completed_laps:
+                self.completed_laps = full_laps
+                self._emit_sound("ACK_COMMAND")
+            self.routine_progress = (accum_rad % two_pi) / two_pi
+            v_lim_mps = self.speed_req_mps
+
+        v_rad_mps = self.kr_radial_per_s * (self.circle_radius_m - r_actual_m)
+        max_v_rad_mps = 0.6 * v_lim_mps
+        if v_rad_mps > max_v_rad_mps:
+            v_rad_mps = max_v_rad_mps
+        elif v_rad_mps < -max_v_rad_mps:
+            v_rad_mps = -max_v_rad_mps
+
+        tx = -self._circle_dir_sign * uy
+        ty = self._circle_dir_sign * ux
+
+        v_tan_sq = (v_lim_mps * v_lim_mps) - (v_rad_mps * v_rad_mps)
+        v_tan_mps = math.sqrt(v_tan_sq) if v_tan_sq > 0.0 else 0.0
+
+        vx_loc_mps = (v_tan_mps * tx) + (v_rad_mps * ux)
+        vy_loc_mps = (v_tan_mps * ty) + (v_rad_mps * uy)
+
+        if self.orientation_mode == "compass_locked":
+            omega_ff_dps = 0.0
+        else:
+            r_ref_m = self.circle_radius_m if self.circle_radius_m > 0.05 else 0.05
+            omega_ff_dps = self._circle_dir_sign * math.degrees(v_tan_mps / r_ref_m)
+
+        return vx_loc_mps, vy_loc_mps, omega_ff_dps, True
+
     def step(self, dt_s=None):
         now_ms = _ticks_ms()
         dt = (
@@ -327,6 +534,7 @@ class PatternRunner:
         if not self.is_active():
             return 0.0, 0.0, 0.0, False
 
+        omega_ff_dps = 0.0
         if self.active_routine == "compass_box":
             vx_loc_mps, vy_loc_mps, keep_going = self._step_compass_box_local_vel()
             if not keep_going:
@@ -336,6 +544,16 @@ class PatternRunner:
                 return 0.0, 0.0, 0.0, False
             half_s = 0.5 * self.side_length_m
             self.psi_target_deg = self._compute_target_heading_deg(vx_loc_mps, vy_loc_mps, half_s, -half_s)
+        elif self.active_routine == "circle":
+            vx_loc_mps, vy_loc_mps, omega_ff_dps, keep_going = self._step_circle_local_vel()
+            if not keep_going:
+                self.cmd_vx_mps = 0.0
+                self.cmd_vy_mps = 0.0
+                self.cmd_omega_dps = 0.0
+                return 0.0, 0.0, 0.0, False
+            self.psi_target_deg = self._compute_target_heading_deg(
+                vx_loc_mps, vy_loc_mps, self._circle_cx_m, self._circle_cy_m
+            )
         else:
             self.stop("Unknown active routine")
             return 0.0, 0.0, 0.0, False
@@ -349,23 +567,52 @@ class PatternRunner:
         des_vy_mps = -vx_loc_mps * sin_t + vy_loc_mps * cos_t
 
         err_cw_deg = wrap_angle_180_deg(self.psi_target_deg - psi_deg)
-        des_omega_dps = (-self.kp_yaw_dps_per_deg * err_cw_deg) - (self.kd_yaw_s * self._read_gyro_z_dps())
+        gz_dps = self._read_gyro_z_dps()
+        des_omega_dps = (
+            omega_ff_dps
+            - (self.kp_yaw_dps_per_deg * err_cw_deg)
+            - (self.kd_yaw_s * (gz_dps - omega_ff_dps))
+        )
         des_omega_dps = max(-self.max_yaw_hold_dps, min(self.max_yaw_hold_dps, des_omega_dps))
 
+        cur_spd = math.sqrt(self.cmd_vx_mps * self.cmd_vx_mps + self.cmd_vy_mps * self.cmd_vy_mps)
         dvx = des_vx_mps - self.cmd_vx_mps
         dvy = des_vy_mps - self.cmd_vy_mps
-        dv = math.sqrt(dvx * dvx + dvy * dvy)
-        max_dv = self.accel_mps2 * dt
-        if dv <= max_dv or dv < 1e-6:
-            self.cmd_vx_mps, self.cmd_vy_mps = des_vx_mps, des_vy_mps
+        max_dv_tan = self.accel_mps2 * dt
+        if cur_spd < 1e-6:
+            dv = math.sqrt(dvx * dvx + dvy * dvy)
+            if dv <= max_dv_tan or dv < 1e-9:
+                self.cmd_vx_mps, self.cmd_vy_mps = des_vx_mps, des_vy_mps
+            else:
+                scl = max_dv_tan / dv
+                self.cmd_vx_mps += dvx * scl
+                self.cmd_vy_mps += dvy * scl
         else:
-            scl = max_dv / dv
-            self.cmd_vx_mps += dvx * scl
-            self.cmd_vy_mps += dvy * scl
+            inv_cur = 1.0 / cur_spd
+            ex = self.cmd_vx_mps * inv_cur
+            ey = self.cmd_vy_mps * inv_cur
+            dv_tan = dvx * ex + dvy * ey
+            dv_norm = -dvx * ey + dvy * ex
+            lat_lim_mps2 = 1.15 * self.a_c_max_mps2
+            if self.accel_mps2 > lat_lim_mps2:
+                lat_lim_mps2 = self.accel_mps2
+            max_dv_norm = lat_lim_mps2 * dt
+            r_tan = dv_tan / max_dv_tan if max_dv_tan > 1e-9 else 0.0
+            r_norm = dv_norm / max_dv_norm if max_dv_norm > 1e-9 else 0.0
+            ellip_sq = (r_tan * r_tan) + (r_norm * r_norm)
+            if ellip_sq <= 1.0:
+                self.cmd_vx_mps, self.cmd_vy_mps = des_vx_mps, des_vy_mps
+            else:
+                scl = 1.0 / math.sqrt(ellip_sq)
+                self.cmd_vx_mps += dvx * scl
+                self.cmd_vy_mps += dvy * scl
 
         cmd_spd = math.sqrt(self.cmd_vx_mps * self.cmd_vx_mps + self.cmd_vy_mps * self.cmd_vy_mps)
-        if cmd_spd > self.max_speed_mps and cmd_spd > 1e-6:
-            cap_scl = self.max_speed_mps / cmd_spd
+        spd_ceil = cur_spd + max_dv_tan
+        if self.max_speed_mps < spd_ceil:
+            spd_ceil = self.max_speed_mps
+        if cmd_spd > spd_ceil and cmd_spd > 1e-6:
+            cap_scl = spd_ceil / cmd_spd
             self.cmd_vx_mps *= cap_scl
             self.cmd_vy_mps *= cap_scl
 
@@ -421,6 +668,10 @@ class PatternRunner:
             "state": self.state,
             "active_routine": self.active_routine,
             "preset": self.preset,
+            "orientation_mode": self.orientation_mode,
+            "direction": self.circle_direction,
+            "radius_m": round(self.circle_radius_m, 3),
+            "speed_target_mps": round(self.speed_req_mps, 3),
             "progress": round(self.routine_progress, 3),
             "local_x_m": round(self.local_x_m, 3),
             "local_y_m": round(self.local_y_m, 3),
