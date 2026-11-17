@@ -34,7 +34,16 @@ class _StubDev:
         pass
 
 
-# Prevent pimoroni_yukon from compiling 20 KB of unused WavPlayer / Stepper drivers
+# Prevent pimoroni_yukon from compiling unused WavPlayer, Stepper & 7 uninstalled slot drivers
+_UNINSTALLED_YUKON_MODS = (
+    ("bench_power", "BenchPowerModule"),
+    ("big_motor", "BigMotorModule"),
+    ("dual_output", "DualOutputModule"),
+    ("proto", "ProtoPotModule"),
+    ("quad_servo_direct", "QuadServoDirectModule"),
+    ("quad_servo_reg", "QuadServoRegModule"),
+    ("serial_servo", "SerialServoModule"),
+)
 if "pimoroni_yukon" not in sys.modules:
     _d_pkg = _StubMod()
     _d_aud = _StubMod()
@@ -44,7 +53,11 @@ if "pimoroni_yukon" not in sys.modules:
     sys.modules["pimoroni_yukon.devices"] = _d_pkg
     sys.modules["pimoroni_yukon.devices.audio"] = _d_aud
     sys.modules["pimoroni_yukon.devices.stepper"] = _d_stp
-    del _d_pkg, _d_aud, _d_stp
+    for _um, _uc in _UNINSTALLED_YUKON_MODS:
+        _sm = _StubMod()
+        setattr(_sm, _uc, _StubDev)
+        sys.modules["pimoroni_yukon.modules." + _um] = _sm
+    del _d_pkg, _d_aud, _d_stp, _sm, _um, _uc
 
 import pimoroni_yukon as _pyk
 import pimoroni_yukon.modules as _pyk_mods
@@ -54,25 +67,17 @@ from pimoroni_yukon.modules.led_strip import LEDStripModule
 from pimoroni_yukon.modules.rm2_wireless import RM2WirelessModule
 from pimoroni_yukon.modules.audio_amp import AudioAmpModule
 
-# Reclaim RAM from the 7 uninstalled Yukon slot drivers before compiling Cone modules
+# Restrict KNOWN_MODULES to installed slots & drop stub placeholders
 _INSTALLED_MODS = (AudioAmpModule, DualMotorModule, LEDStripModule, RM2WirelessModule)
 _pyk.KNOWN_MODULES = _INSTALLED_MODS
 _pyk_mods.KNOWN_MODULES = _INSTALLED_MODS
-for _um, _uc in (
-    ("bench_power", "BenchPowerModule"),
-    ("big_motor", "BigMotorModule"),
-    ("dual_output", "DualOutputModule"),
-    ("proto", "ProtoPotModule"),
-    ("quad_servo_direct", "QuadServoDirectModule"),
-    ("quad_servo_reg", "QuadServoRegModule"),
-    ("serial_servo", "SerialServoModule"),
-):
+for _um, _uc in _UNINSTALLED_YUKON_MODS:
     if hasattr(_pyk_mods, _um):
         delattr(_pyk_mods, _um)
     if hasattr(_pyk_mods, _uc):
         delattr(_pyk_mods, _uc)
     sys.modules.pop("pimoroni_yukon.modules." + _um, None)
-del _pyk, _pyk_mods, _INSTALLED_MODS, _um, _uc
+del _pyk, _pyk_mods, _INSTALLED_MODS, _UNINSTALLED_YUKON_MODS, _um, _uc
 gc.collect()
 
 import config

@@ -180,15 +180,15 @@ class TelemetryServer:
         try:
             gc.collect()
             size = os.stat(file_path)[6]
-            hdr = (
-                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
-                "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
-            ).format(content_type, size)
-            writer.write(hdr.encode("utf-8"))
-            del hdr
-            headers_sent = True
-            await writer.drain()
             with open(file_path, "rb") as f:
+                hdr = (
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
+                    "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
+                ).format(content_type, size)
+                writer.write(hdr.encode("utf-8"))
+                del hdr
+                headers_sent = True
+                await writer.drain()
                 while True:
                     n = f.readinto(buf)
                     if not n:
@@ -424,6 +424,13 @@ class TelemetryServer:
             raw = _binascii.a2b_base64(b64)
             del b64
             _ensure_parent_dirs(rel)
+            if mode == "wb":
+                alt = (rel[:-4] + ".py") if rel.endswith(".mpy") else ((rel[:-3] + ".mpy") if rel.endswith(".py") else None)
+                if alt:
+                    try:
+                        os.remove(alt)
+                    except OSError:
+                        pass
             with open(rel, mode) as f:
                 f.write(raw)
             del raw
