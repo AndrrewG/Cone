@@ -201,3 +201,12 @@
 - [ ] **Repository & Tooling Cleanup:** Commit verified firmware + [HARDWARE.md](HARDWARE.md) baseline to `git` and prune any temporary diagnostic scripts in `tools/`.
 - [ ] **Slot 4 Physical LED Wire Mounting:** Mount the `50`-LED `WS2812` wire onto the cone body and verify all modes (`Beacon`, `Strobe`, `Rainbow`, etc.) and `5 V` `PGOOD` status via the Web UI.
 - [ ] **Full 3-Channel Chassis Assembly & Calibration:** Once the 3D-printed equilateral triangle base is ready, wire Motors 1–3, verify `wheel_angles_deg`, `motor_polarity`, and `ICM-20948` nose alignment, and measure exact `chassis_radius_m` (`ROBOT_BASE_RADIUS_M`) in [config.py](config.py) & [HARDWARE.md](HARDWARE.md).
+
+---
+
+## Non-Coding Project Objectives
+
+- [ ] **UK YouTuber / Maker Media Showcase (Post-Driving Milestone — Do Not Contact Yet):**
+  - Once the electronics are mounted in the 3D-printed cone and driving video/demos are recorded, consider pitching the **ARSE Mk.I** story (*an AI-designed, AI-coded autonomous traffic cone built as a meta-experiment in AI embodiment*) to UK-based maker, robotics, and tech creators:
+    - **Best RP2040 / MicroPython / Pimoroni Fits:** Kevin McAleer, Pimoroni (`@pimoroni`, Sheffield), atomic14 (Chris Greening), ExplainingComputers (Christopher Barnatt), Les Pounder (`biglesp` / Tom's Hardware UK).
+    - **Larger UK Robotics / 3D-Printing / STEM Channels:** James Bruton (`XRobots`), Matt Denton, Tom Stanton, Stand-up Maths (Matt Parker).
