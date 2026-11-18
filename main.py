@@ -378,6 +378,8 @@ class ConeApp:
                 # Remain in 5 Hz sleep unless tamper just tripped ALARM
                 if self.sentry.is_low_power_watch():
                     if watch_tick == 0:
+                        if self.wifi:
+                            self.wifi.check_link()
                         b_stat = self.battery.update()
                         self._b_critical = bool(b_stat["is_critical"])
                         if self._b_critical and self.yukon.is_main_output_enabled():
@@ -466,6 +468,8 @@ class ConeApp:
                 self.audio.tick()
 
             if tick == 0:
+                if self.wifi:
+                    self.wifi.check_link()
                 self.board_temp_c = self.yukon.read_temperature()
                 self.drive.sample_driver_diagnostics()
                 if (not self.drive.armed) or (self.drive.active_source == "idle"):

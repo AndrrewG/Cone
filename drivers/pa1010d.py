@@ -35,6 +35,19 @@ class PA1010D:
         self.hdop = 99.9
         self.utc_time = ""
         self.last_update = 0
+        self._status = {
+            "has_fix": False,
+            "lat_e7": 0,
+            "lon_e7": 0,
+            "latitude": 0.0,
+            "longitude": 0.0,
+            "altitude_m": 0.0,
+            "speed_kmh": 0.0,
+            "course_deg": 0.0,
+            "satellites": 0,
+            "hdop": 99.9,
+            "utc_time": "",
+        }
 
     def update(self):
         try:
@@ -169,16 +182,16 @@ class PA1010D:
             return None
 
     def get_status(self):
-        return {
-            "has_fix": self.has_fix,
-            "lat_e7": self.lat_e7,
-            "lon_e7": self.lon_e7,
-            "latitude": round(self.latitude, 6),
-            "longitude": round(self.longitude, 6),
-            "altitude_m": round(self.altitude, 1),
-            "speed_kmh": round(self.speed_kmh, 1),
-            "course_deg": round(self.course_deg, 1),
-            "satellites": self.satellites,
-            "hdop": round(self.hdop, 1),
-            "utc_time": self.utc_time,
-        }
+        st = self._status
+        st["has_fix"] = self.has_fix
+        st["lat_e7"] = self.lat_e7
+        st["lon_e7"] = self.lon_e7
+        st["latitude"] = round(self.latitude, 6)
+        st["longitude"] = round(self.longitude, 6)
+        st["altitude_m"] = round(self.altitude, 1)
+        st["speed_kmh"] = round(self.speed_kmh, 1)
+        st["course_deg"] = round(self.course_deg, 1)
+        st["satellites"] = self.satellites
+        st["hdop"] = round(self.hdop, 1)
+        st["utc_time"] = self.utc_time
+        return st

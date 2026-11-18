@@ -612,12 +612,83 @@ class TestChassisGeometryAndImuMounting(unittest.TestCase):
             self.assertEqual(st["mode"], "STA")
             self.assertIn(0xA11140, _FakeWlan.instances[0].pm_calls)
             self.assertEqual(_FakeWlan.instances[0].pm_calls[-1], 0xA11140)
+
+            # Simulate overnight router disconnect -> non-blocking check_link() throttles & reconnects
+            wlan = _FakeWlan.instances[0]
+            connect_calls = []
+            wlan.connected = False
+
+            def _async_connect(ssid, pwd):
+                connect_calls.append((ssid, pwd))
+
+            wlan.connect = _async_connect
+            time._mock_ms += 5000
+            self.assertFalse(cw.check_link())
+            self.assertEqual(len(connect_calls), 0)  # < 15s backoff
+
+            time._mock_ms += 11000
+            self.assertFalse(cw.check_link())
+            self.assertEqual(connect_calls, [("HomeLAN", "pw12345678")])
+
+            # Immediate next 1 Hz tick must NOT re-spam wlan.connect()
+            time._mock_ms += 1000
+            self.assertFalse(cw.check_link())
+            self.assertEqual(len(connect_calls), 1)
+
+            # Once CYW43 finishes associating, check_link() marks link healthy again
+            wlan.connected = True
+            self.assertTrue(cw.check_link())
+            self.assertFalse(cw._reconnecting)
         finally:
             if old_net is None:
                 sys.modules.pop("network", None)
             else:
                 sys.modules["network"] = old_net
             sys.modules.pop("drivers.wifi_manager", None)
+
+    def test_battery_monitor_reuses_status_dict_and_backs_off_on_save_error(self):
+        import os
+        import tempfile
+        from drivers.battery import BatteryMonitor
+
+        class _BatYukon(FakeYukon):
+            def read_input_voltage(self, samples=8):
+                return 12.10
+
+            def read_current(self, samples=8):
+                return 0.349
+
+        yukon = _BatYukon()
+        tmp_state = os.path.join(tempfile.gettempdir(), "arse_test_bat_state.json")
+        try:
+            bm = BatteryMonitor(yukon, state_file=tmp_state, save_interval_ms=30000)
+            s1 = bm.get_status()
+            s2 = bm.get_status()
+            self.assertIs(s1, s2)
+
+            # Force a save failure and verify _last_save_time still advances (no 10 Hz retry storm)
+            bm.discharged_mah += 5.0
+            bm._last_save_time = time.ticks_ms() - 31000
+            bm.state_file = os.path.join(tmp_state, "nonexistent_subdir", "bat.json")
+            save_calls = []
+            orig_save = bm.save
+
+            def _counted_save():
+                save_calls.append(1)
+                return orig_save()
+
+            bm.save = _counted_save
+            bm.update()
+            self.assertEqual(len(save_calls), 1)
+            time._mock_ms += 100
+            bm.update()
+            self.assertEqual(len(save_calls), 1)
+        finally:
+            for p in (tmp_state, tmp_state + ".tmp"):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 if __name__ == "__main__":

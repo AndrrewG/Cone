@@ -106,6 +106,21 @@ class ICM20948:
         self.gy_dps = 0.0
         self.gz_dps = 0.0
         self._buf14 = bytearray(14)
+        self._mag_list = [0.0, 0.0, 0.0]
+        self._status = {
+            "online": True,
+            "mag_online": self.mag_online,
+            "heading_deg": 0.0,
+            "mag_heading_deg": 0.0,
+            "pitch_deg": 0.0,
+            "roll_deg": 0.0,
+            "tilt_fault": False,
+            "calibrated": self.is_calibrated,
+            "calibrating": False,
+            "cal_samples": 0,
+            "mag_ut": self._mag_list,
+            "temp_c": 25.0,
+        }
         self._heading_seeded = False
         self._tilt_ticks = 0
         self.tilt_fault = False
@@ -330,14 +345,29 @@ class ICM20948:
         dt = max(0.001, min(0.5, time.ticks_diff(now, self._last_update_ms) / 1000.0))
         self._last_update_ms = now
 
-        d = self.read_all()
-        ax, ay, az = d["accel"]
-        gx, gy, gz = d["gyro"]
+        self._set_bank(0)
+        if hasattr(self.i2c, "readfrom_mem_into"):
+            self.i2c.readfrom_mem_into(self.address, self.REG_ACCEL_XOUT_H, self._buf14)
+            raw_ax, raw_ay, raw_az, raw_gx, raw_gy, raw_gz, raw_t = struct.unpack_from(">hhhhhhh", self._buf14, 0)
+        else:
+            data = self.i2c.readfrom_mem(self.address, self.REG_ACCEL_XOUT_H, 14)
+            raw_ax, raw_ay, raw_az, raw_gx, raw_gy, raw_gz, raw_t = struct.unpack(">hhhhhhh", data)
+        dax = raw_ax / self.ACCEL_SCALE_2G
+        day = raw_ay / self.ACCEL_SCALE_2G
+        dgx = raw_gx / self.GYRO_SCALE_250
+        dgy = raw_gy / self.GYRO_SCALE_250
+        cm, sm = self._cos_m, self._sin_m
+        ax = dax * cm - day * sm
+        ay = dax * sm + day * cm
+        az = raw_az / self.ACCEL_SCALE_2G
+        gx = dgx * cm - dgy * sm
+        gy = dgx * sm + dgy * cm
+        gz = raw_gz / self.GYRO_SCALE_250
         self.ax_g, self.ay_g, self.az_g = ax, ay, az
         self.gx_dps, self.gy_dps, self.gz_dps = gx, gy, gz
         self.last_accel_g = (ax, ay, az)
         self.last_gyro_dps = (gx, gy, gz)
-        self.temp_c = d["temp"]
+        self.temp_c = (raw_t / 333.87) + 21.0
 
         # Low-pass filtered pitch & roll (degrees)
         raw_pitch = math.degrees(math.atan2(-ax, math.sqrt(ay * ay + az * az)))
@@ -408,17 +438,21 @@ class ICM20948:
 
     def get_status(self):
         mx, my, mz = self.last_mag_ut
-        return {
-            "online": True,
-            "mag_online": self.mag_online,
-            "heading_deg": round(self.heading_deg, 1),
-            "mag_heading_deg": round(self.mag_heading_deg, 1),
-            "pitch_deg": round(self.pitch_deg, 1),
-            "roll_deg": round(self.roll_deg, 1),
-            "tilt_fault": self.tilt_fault,
-            "calibrated": self.is_calibrated,
-            "calibrating": self.calibrating,
-            "cal_samples": self.cal_samples,
-            "mag_ut": [round(mx, 1), round(my, 1), round(mz, 1)],
-            "temp_c": round(self.temp_c, 1),
-        }
+        ml = self._mag_list
+        ml[0] = round(mx, 1)
+        ml[1] = round(my, 1)
+        ml[2] = round(mz, 1)
+        st = self._status
+        st["online"] = True
+        st["mag_online"] = self.mag_online
+        st["heading_deg"] = round(self.heading_deg, 1)
+        st["mag_heading_deg"] = round(self.mag_heading_deg, 1)
+        st["pitch_deg"] = round(self.pitch_deg, 1)
+        st["roll_deg"] = round(self.roll_deg, 1)
+        st["tilt_fault"] = self.tilt_fault
+        st["calibrated"] = self.is_calibrated
+        st["calibrating"] = self.calibrating
+        st["cal_samples"] = self.cal_samples
+        st["mag_ut"] = ml
+        st["temp_c"] = round(self.temp_c, 1)
+        return st

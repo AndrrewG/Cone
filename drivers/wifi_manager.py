@@ -8,12 +8,15 @@
 #              authorized station networks and provides 'TrafficCone' AP failover.
 # Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
 # ==============================================================================
+import gc
 import json
 import network
 import time
 
 
 class ConeWiFi:
+    RECONNECT_INTERVAL_MS = 15000
+
     def __init__(self, ap_ssid="TrafficCone", ap_password="", connect_timeout_ms=9000):
         self.ap_ssid = ap_ssid
         self.ap_password = ap_password
@@ -25,6 +28,18 @@ class ConeWiFi:
         self.mac = ""
         self._sta = None
         self._ap = None
+        self._saved_ssid = ""
+        self._saved_pwd = ""
+        self._power_save_enabled = False
+        self._reconnecting = False
+        self._last_reconnect_ms = 0
+        self._status = {
+            "mode": "OFF",
+            "ssid": "",
+            "ip": "0.0.0.0",
+            "rssi": None,
+            "mac": "",
+        }
 
     def _load_configured_networks(self):
         networks = []
@@ -102,6 +117,10 @@ class ConeWiFi:
                 if self._sta.isconnected():
                     self.mode = "STA"
                     self.ssid = ssid
+                    self._saved_ssid = ssid
+                    self._saved_pwd = pwd
+                    self._reconnecting = False
+                    self._last_reconnect_ms = time.ticks_ms() if hasattr(time, "ticks_ms") else 0
                     self.ip = self._sta.ifconfig()[0]
                     self.set_power_save(False)
                     print("[Wi-Fi] Connected! SSID='{}' | URL: http://{}/".format(self.ssid, self.ip))
@@ -140,6 +159,7 @@ class ConeWiFi:
     def set_power_save(self, enabled):
         # Toggle CYW43439 beacon-synchronised PM during Sentry low-power watch.
         # Avoid PM_POWERSAVE (0x00111022) as CYW43 aggressive sleep drops inbound HTTP SYNs.
+        self._power_save_enabled = bool(enabled)
         if self.mode == "STA" and self._sta:
             try:
                 pm_on = getattr(network.WLAN, "PM_PERFORMANCE", 0xA11142)
@@ -147,6 +167,46 @@ class ConeWiFi:
                 self._sta.config(pm=pm_on if enabled else pm_off)
             except Exception:
                 pass
+
+    def check_link(self):
+        """Non-blocking background STA watchdog — re-initiates association if router drops link."""
+        if self.mode != "STA" or not self._sta:
+            return True
+        if self._sta.isconnected():
+            self.ip = self._sta.ifconfig()[0]
+            if self._reconnecting:
+                self._reconnecting = False
+                self.set_power_save(self._power_save_enabled)
+                print("[Wi-Fi] Reconnected! SSID='{}' | URL: http://{}/".format(self.ssid, self.ip))
+            return True
+
+        now = time.ticks_ms() if hasattr(time, "ticks_ms") else int(time.monotonic() * 1000)
+        elapsed = (
+            time.ticks_diff(now, self._last_reconnect_ms)
+            if hasattr(time, "ticks_diff")
+            else (now - self._last_reconnect_ms)
+        )
+        if elapsed < self.RECONNECT_INTERVAL_MS:
+            return False
+
+        self._last_reconnect_ms = now
+        self._reconnecting = True
+        if not self._saved_ssid:
+            cands = self._load_configured_networks()
+            if cands:
+                self._saved_ssid, self._saved_pwd = cands[0]
+        if not self._saved_ssid:
+            return False
+
+        try:
+            gc.collect()
+            self._sta.active(True)
+            self._sta.config(pm=getattr(network.WLAN, "PM_NONE", 0xA11140))
+            self._sta.connect(self._saved_ssid, self._saved_pwd)
+            print("[Wi-Fi] Link lost — reconnecting to '{}'...".format(self._saved_ssid))
+        except Exception as e:
+            print("[Wi-Fi] Reconnect attempt error:", e)
+        return False
 
     def get_rssi(self):
         if self.mode == "STA" and self._sta and self._sta.isconnected():
@@ -159,10 +219,10 @@ class ConeWiFi:
     def get_status(self):
         if self.mode == "STA" and self._sta and self._sta.isconnected():
             self.ip = self._sta.ifconfig()[0]
-        return {
-            "mode": self.mode,
-            "ssid": self.ssid,
-            "ip": self.ip,
-            "rssi": self.get_rssi(),
-            "mac": self.mac,
-        }
+        st = self._status
+        st["mode"] = self.mode
+        st["ssid"] = self.ssid
+        st["ip"] = self.ip
+        st["rssi"] = self.get_rssi()
+        st["mac"] = self.mac
+        return st

@@ -107,8 +107,21 @@ try {
     $null = Invoke-RawRepl "try:`n app.audio._shutdown_hardware()`nexcept Exception:`n pass`ntry:`n import asyncio; asyncio.new_event_loop()`nexcept Exception:`n pass`nfor _k in list(globals().keys()):`n if _k != '__builtins__' and not _k.startswith('__'):`n  globals().pop(_k, None)`nimport sys, gc`nsys.modules.clear()`ngc.collect()`n" 600
 
     if (-not $OnlyFile) {
-        $cleanupCode = "import os, gc`nfor _f in ('main.py', 'arse_app.mpy'):`n try:`n  os.remove(_f)`n except OSError:`n  pass`ngc.collect()`n"
-        $null = Invoke-RawRepl $cleanupCode 600
+        $cleanupCode = "import os, gc`nfor _f in ('main.py', 'arse_app.mpy'):`n try:`n  os.remove(_f)`n except OSError:`n  pass`ngc.collect()`nprint('FREE_BYTES', gc.mem_free())`n"
+        $freeRes = Invoke-RawRepl $cleanupCode 600
+        if ($freeRes -match "FREE_BYTES\s+(\d+)" -and ([int]$Matches[1] -lt 32768)) {
+            Write-Host "  [HEAP] Defragmenting RP2040 heap via clean reset ($($Matches[1]) B free)..." -ForegroundColor Yellow
+            $rstB = [System.Text.Encoding]::UTF8.GetBytes("import machine; machine.reset()")
+            $serial.Write($rstB, 0, $rstB.Length)
+            $serial.Write([byte[]]@(0x04), 0, 1)
+            Start-Sleep -Milliseconds 100
+            try { $serial.Close() } catch {}
+            Start-Sleep -Milliseconds 2400
+            $serial.Open()
+            $serial.Write([byte[]]@(0x03, 0x01), 0, 2)
+            Start-Sleep -Milliseconds 350
+            $null = $serial.ReadExisting()
+        }
     }
 
     # Clear cached user modules & run GC WITHOUT VM soft-reset
@@ -161,7 +174,10 @@ cur.update(inc)
 f = open('secrets.json', 'wb')
 f.write((ujson.dumps(cur) + '\n').encode('utf-8'))
 f.close()
-print('SECRETS_MERGED', len(cur))
+n_keys = len(cur)
+del cur, inc, f
+gc.collect()
+print('SECRETS_MERGED', n_keys)
 "@
         $mRes = Invoke-RawRepl $mergeCode 800
         if ($mRes -match "SECRETS_MERGED") {

@@ -9,6 +9,7 @@
 # Copyright (c) 2026 Autonomous Road Systems Engineering (ARSE).
 # ==============================================================================
 
+import gc
 import json
 import os
 import time
@@ -96,6 +97,26 @@ class BatteryMonitor:
         self._last_time = now
         self._last_save_time = now
         self._last_saved_discharged = self.discharged_mah
+        self._status = {
+            "battery_present": False,
+            "voltage_v": 0.0,
+            "cell_voltage_v": 0.0,
+            "current_a": 0.0,
+            "efuse_current_a": 0.0,
+            "power_w": 0.0,
+            "soc_percent": 0.0,
+            "initial_soc_percent": 0.0,
+            "capacity_mah": 0.0,
+            "remaining_mah": 0.0,
+            "discharged_mah": 0.0,
+            "consumed_mah": 0.0,
+            "est_minutes": 0.0,
+            "seed_mode": self.seed_mode,
+            "fresh_battery_suspected": False,
+            "zero_offset_a": 0.0,
+            "is_low": False,
+            "is_critical": False,
+        }
 
     def _recalculate(self):
         start_mah = self.capacity_mah * (self.initial_soc_percent / 100.0)
@@ -122,6 +143,8 @@ class BatteryMonitor:
             return False
 
     def save(self):
+        gc.collect()
+        self._last_save_time = time.ticks_ms()
         payload = {
             "capacity_mah": round(self.capacity_mah, 1),
             "initial_soc_pct": round(self.initial_soc_percent, 2),
@@ -134,6 +157,7 @@ class BatteryMonitor:
         try:
             with open(tmp_file, "w") as f:
                 json.dump(payload, f)
+            del payload
             try:
                 os.rename(tmp_file, self.state_file)
             except OSError:
@@ -142,7 +166,6 @@ class BatteryMonitor:
                 except OSError:
                     pass
                 os.rename(tmp_file, self.state_file)
-            self._last_save_time = time.ticks_ms()
             self._last_saved_discharged = self.discharged_mah
             return True
         except Exception as e:
@@ -259,23 +282,24 @@ class BatteryMonitor:
         else:
             est_min = 0.0
 
-        return {
-            "battery_present": has_pack,
-            "voltage_v": round(v, 2),
-            "cell_voltage_v": round(cell_v, 2),
-            "current_a": round(self.last_current_amps, 3),
-            "efuse_current_a": round(self.efuse_current_amps, 3),
-            "power_w": round(power_w, 2),
-            "soc_percent": round(self.soc_percent, 1),
-            "initial_soc_percent": round(self.initial_soc_percent, 1),
-            "capacity_mah": round(self.capacity_mah, 0),
-            "remaining_mah": round(self._remaining_mah, 1),
-            "discharged_mah": round(self.discharged_mah, 2),
-            "consumed_mah": round(self.discharged_mah, 2),  # compat alias
-            "est_minutes": round(est_min, 1),
-            "seed_mode": self.seed_mode,
-            "fresh_battery_suspected": self.fresh_battery_suspected,
-            "zero_offset_a": round(self.zero_offset_amps, 3),
-            "is_low": has_pack and (v < self.V_WARNING),
-            "is_critical": has_pack and (self._critical_samples >= 10),
-        }
+        st = self._status
+        st["battery_present"] = has_pack
+        st["voltage_v"] = round(v, 2)
+        st["cell_voltage_v"] = round(cell_v, 2)
+        st["current_a"] = round(self.last_current_amps, 3)
+        st["efuse_current_a"] = round(self.efuse_current_amps, 3)
+        st["power_w"] = round(power_w, 2)
+        st["soc_percent"] = round(self.soc_percent, 1)
+        st["initial_soc_percent"] = round(self.initial_soc_percent, 1)
+        st["capacity_mah"] = round(self.capacity_mah, 0)
+        st["remaining_mah"] = round(self._remaining_mah, 1)
+        dm = round(self.discharged_mah, 2)
+        st["discharged_mah"] = dm
+        st["consumed_mah"] = dm
+        st["est_minutes"] = round(est_min, 1)
+        st["seed_mode"] = self.seed_mode
+        st["fresh_battery_suspected"] = self.fresh_battery_suspected
+        st["zero_offset_a"] = round(self.zero_offset_amps, 3)
+        st["is_low"] = has_pack and (v < self.V_WARNING)
+        st["is_critical"] = has_pack and (self._critical_samples >= 10)
+        return st
