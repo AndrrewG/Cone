@@ -185,6 +185,17 @@
 
 ---
 
+### Priority 8 — Annoy Eufy Mode (`IDEA-008` • Eufy S1 Pro Harassment & Base-Station Blockade)
+
+- [ ] **Task 8.1 — Phase 1 Dock-Blockade & Taunt Engine (`nav/eufy_harasser.py`, `[INSTALLED]` Hardware):**
+  - Implement `EufyHarasser` supporting `base_station_ambush` (park `0.25–0.35 m` in front of saved dock pose with optional `±0.15 m` lateral oscillation), `dock_blockade_return` (dock approach corridor patrol), `taunt_pirouette` (`360 deg` spin + `"police"`/`"strobe"` LEDs + `"meep_meep"`), and `scheduled_ambush` webhook/timer trigger (strictly requiring prior operator arming).
+  - Enforce disarmed rejection (`HTTP 409`), `"indoor"` speed/leash caps (`<= 0.45 m/s`, `a_c_max = 0.75 m/s^2`), `> 0.35 g` IMU bump back-off (`0.15 m`), and Web UI controls (`POST /api/eufy/set_dock`, `/start`, `/stop`, `GET /api/eufy/status`) + `tests/test_eufy_harasser.py`.
+
+- [ ] **Task 8.2 — Phase 2 Live ToF Pursuit, Cut-Off & Box-In (**Gated on `[PLANNED]` Dual `VL53L5CX` in [HARDWARE.md](HARDWARE.md) §3.1**):**
+  - Add low-profile floor-robot tracker (`rows 4–7` motion-delta lock + tall-row `rows 0–2` human/pet yield override) feeding `shadow_cut_off`, `box_in` (corner herding with `max_pin_s` release), `wet_floor_waltz` (trailing figure-8 across freshly mopped stripes), and `matador_sidestep` (`0.40 m` dodge at `0.22 m` close-in) + `tests/test_eufy_tof_pursuit.py`.
+
+---
+
 ## Ongoing Mechanical, Bench & Repository Housekeeping
 - [ ] **Known Issues Log ([ISSUES.md](ISSUES.md)):** Investigate `ISSUE-001` — audible speaker pop when the Slot 6 `TAS2780` audio amplifier turns off ([drivers/audio_sfx.py](drivers/audio_sfx.py)).
 - [ ] **Repository & Tooling Cleanup:** Commit verified firmware + [HARDWARE.md](HARDWARE.md) baseline to `git` and prune any temporary diagnostic scripts in `tools/`.
