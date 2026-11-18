@@ -117,16 +117,16 @@ All subsystems in this section are physically purchased (`BOM #PI796120`), suppo
     * Inverse kinematics: `v_i = -sin(alpha_i) * vx + cos(alpha_i) * vy + chassis_radius_m * omega`.
   * **Motor Polarities (`MOTOR_POLARITY`):** Configurable 3-tuple **`(1, 1, 1)`** in `config.py` applied at the `DRV8424P` H-bridge stage in `DriveController`. All 3 motors are mounted with identical `C3` radial symmetry (gearboxes pointing radially inward) and wired identically, so bench verification will select either `(1, 1, 1)` or `(-1, -1, -1)` uniformly.
 
-### 2.5 50-LED Addressable Ring / Warning Array (`[INSTALLED]`)
+### 2.5 60-LED Addressable Ring / Warning Array (`[INSTALLED]`)
 
-* **Module & LED Hardware:** Pimoroni **LED Strip Module** in **Slot 4** driving a **`50`-pixel addressable `WS2812` RGB LED wire** (`5.0 m` length, `0.100 m` pixel pitch, `NEOPIXEL` single-strip mode). *(Module verified; final physical cone wrap/mounting noted in `TASKS.md`.)*
+* **Module & LED Hardware:** Pimoroni **LED Strip Module** in **Slot 4** driving a **`60`-pixel addressable `WS2812` RGB LED strip** (The Pi Hut SKU `104554`, `60 LED/m`, `NEOPIXEL` single-strip mode). *(Module verified; final physical cone wrap/mounting noted in `TASKS.md`.)*
 * **Slot 4 Pin Mapping (`LEDStripModule` on `PIO0`, `SM0`):**
   * **WS2812 Data Pin:** **`GPIO15`** (`SLOT4_FAST4`)
   * **Unused Secondary Data/Clock Pin:** `GPIO14` (`SLOT4_FAST3`)
   * **5 V Buck Enable (`POWER_EN`):** **`GPIO13`** (`SLOT4_FAST2`, active-high; automatically disabled when LED mode is `"off"` to eliminate buck/LED quiescent current)
   * **5 V Power-Good (`PGOOD`):** **`GPIO12`** (`SLOT4_FAST1`, input with pull-up)
   * **Thermistor:** `ADC2` (`mux 7`, `80.0 °C` trip)
-* **Operating Parameters:** `NUM_LEDS = 50`, default brightness `0.40` (`0.05..1.00`), non-blocking `20 Hz` (`50 ms`) refresh across `"off"`, `"beacon"`, `"strobe"`, `"solid"`, `"pulse"`, `"police"`, and `"rainbow"`. Active **indoors and outdoors**.
+* **Operating Parameters:** `NUM_LEDS = 60`, default brightness `0.40` (`0.05..1.00`), non-blocking `20 Hz` (`50 ms`) refresh across `"off"`, `"beacon"`, `"strobe"`, `"solid"`, `"pulse"`, `"police"`, and `"rainbow"`. Active **indoors and outdoors**.
 
 ### 2.6 Yukon `AudioAmpModule` & Speaker Subsystem (`[INSTALLED]`)
 

@@ -373,21 +373,26 @@ class SentryAndAudioTests(unittest.TestCase):
             async def drain(self):
                 pass
 
-        srv = TelemetryServer(app=None, html_path=html_path, port=80)
-        writer = FakeWriter()
-        coro = srv._send_html_file(writer)
+        srv = TelemetryServer(app=None, html_path=html_path, port=80, keep_static_open=True)
         try:
-            while True:
-                coro.send(None)
-        except StopIteration:
-            pass
+            self.assertIn(html_path, srv._static_cache)
+            for _ in range(2):
+                writer = FakeWriter()
+                coro = srv._send_html_file(writer)
+                try:
+                    while True:
+                        coro.send(None)
+                except StopIteration:
+                    pass
 
-        raw = bytes(writer.chunks)
-        hdr, body = raw.split(b"\r\n\r\n", 1)
-        self.assertIn(b"HTTP/1.1 200 OK", hdr)
-        self.assertEqual(len(body), len(expected_bytes))
-        self.assertEqual(body, expected_bytes)
-        self.assertFalse(srv._html_busy)
+                raw = bytes(writer.chunks)
+                hdr, body = raw.split(b"\r\n\r\n", 1)
+                self.assertIn(b"HTTP/1.1 200 OK", hdr)
+                self.assertEqual(len(body), len(expected_bytes))
+                self.assertEqual(body, expected_bytes)
+                self.assertFalse(srv._html_busy)
+        finally:
+            srv.close_static_cache()
 
     def test_pa1010d_readfrom_into_discards_idle_lf_and_parses_gnrmc(self):
         from drivers.pa1010d import PA1010D

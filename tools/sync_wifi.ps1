@@ -65,7 +65,7 @@ function Send-OtaBytes([string]$remotePath, [byte[]]$rawBytes, [hashtable]$heade
 try {
     $filesToSync = @(
         @{ Local = "boot.py";                      Remote = "boot.py";                      Mpy = $false },
-        @{ Local = "config.py";                    Remote = "config.py";                    Mpy = $false },
+        @{ Local = "config.py";                    Remote = "config.py";                    Mpy = $true  },
         @{ Local = "drivers\battery.py";           Remote = "drivers/battery.py";           Mpy = $true  },
         @{ Local = "drivers\wifi_manager.py";      Remote = "drivers/wifi_manager.py";      Mpy = $true  },
         @{ Local = "drivers\icm20948.py";          Remote = "drivers/icm20948.py";          Mpy = $true  },

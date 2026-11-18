@@ -63,6 +63,7 @@ target/
 # --- 7. Editor, AI Tooling, Local Reference Clones & Personal Docs ---
 .gemini/
 .refs/pimoroni-yukon/
+pics/
 *Order*.pdf
 battery_state.json
 compass_cal.json

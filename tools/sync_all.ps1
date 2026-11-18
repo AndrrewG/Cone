@@ -130,7 +130,7 @@ try {
 
     $filesToSync = @(
         @{ Local = "boot.py";                      Remote = "boot.py";                      Mpy = $false },
-        @{ Local = "config.py";                    Remote = "config.py";                    Mpy = $false },
+        @{ Local = "config.py";                    Remote = "config.py";                    Mpy = $true  },
         @{ Local = "security\__init__.py";         Remote = "security/__init__.py";         Mpy = $true  },
         @{ Local = "security\auth_manager.py";     Remote = "security/auth_manager.py";     Mpy = $true  },
         @{ Local = "nav\__init__.py";              Remote = "nav/__init__.py";              Mpy = $true  },

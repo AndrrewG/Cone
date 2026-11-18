@@ -200,6 +200,10 @@ class ConeAudio:
         )
         self._i2s.irq(self._i2s_irq)
         self._i2s.write(self._silence)
+        try:
+            self._open_or_rewind_wav("meep.wav")
+        except Exception:
+            pass
 
     @classmethod
     def _calc_gain_db(cls, volume):
@@ -466,10 +470,9 @@ class ConeAudio:
         return self.get_status()
 
     def _teardown_i2s(self):
-        # Silence stream and close WAV handle without calling I2S.deinit()
+        # Silence stream without closing cached WAV handle or calling I2S.deinit()
         # (deinit disables RP2040 DMA_IRQ_0 shared with CYW43 Wi-Fi).
         self.stop()
-        self._close_wav()
 
     def _write_mute_stage1(self):
         try:

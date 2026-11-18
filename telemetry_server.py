@@ -7,6 +7,7 @@
 
 import gc
 import os
+import sys
 
 try:
     import uasyncio as asyncio
@@ -117,7 +118,7 @@ class TelemetryServer:
     MAX_LOGIN_BODY_BYTES = 512
     MAX_BODY_BYTES = 6144
 
-    def __init__(self, app, html_path="web/index.html", port=80, auth_manager=None):
+    def __init__(self, app, html_path="web/index.html", port=80, auth_manager=None, keep_static_open=None, file_reserve=None):
         self.app = app
         self.html_path = html_path
         self.port = port
@@ -127,6 +128,29 @@ class TelemetryServer:
         self._html_buf = bytearray(512)
         self._html_mv = memoryview(self._html_buf)
         self._html_busy = False
+        self._client_busy = False
+        self._file_reserve = file_reserve
+        self._static_cache = {}
+        if keep_static_open:
+            self._open_static_cache()
+
+    def _open_static_cache(self):
+        self.close_static_cache()
+        for p in (self.html_path, self._sibling_path("auth.js")):
+            if isinstance(p, str) and p and _stat_mode(p) not in (-1, 0x4000):
+                try:
+                    sz = os.stat(p)[6]
+                    self._static_cache[p] = (open(p, "rb"), sz)
+                except OSError:
+                    pass
+
+    def close_static_cache(self):
+        for fh, _ in self._static_cache.values():
+            try:
+                fh.close()
+            except Exception:
+                pass
+        self._static_cache.clear()
 
     def _get_auth(self):
         return self.auth if self.auth is not None else getattr(self.app, "auth", None)
@@ -168,19 +192,19 @@ class TelemetryServer:
         await writer.drain()
 
     async def _send_static_file(self, writer, file_path, content_type):
-        use_shared = not self._html_busy
-        if use_shared:
-            self._html_busy = True
-            buf, mv = self._html_buf, self._html_mv
-        else:
-            gc.collect()
-            buf = bytearray(512)
-            mv = memoryview(buf)
+        while self._html_busy:
+            if hasattr(asyncio, "sleep_ms"):
+                await asyncio.sleep_ms(15)
+            else:
+                await asyncio.sleep(0.015)
+        self._html_busy = True
+        buf, mv = self._html_buf, self._html_mv
         headers_sent = False
         try:
-            gc.collect()
-            size = os.stat(file_path)[6]
-            with open(file_path, "rb") as f:
+            cached = self._static_cache.get(file_path)
+            if cached is not None:
+                fh, size = cached
+                fh.seek(0)
                 hdr = (
                     "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
                     "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
@@ -190,11 +214,40 @@ class TelemetryServer:
                 headers_sent = True
                 await writer.drain()
                 while True:
-                    n = f.readinto(buf)
+                    n = fh.readinto(buf)
                     if not n:
                         break
                     writer.write(mv if n == 512 else mv[:n])
                     await writer.drain()
+            else:
+                size = os.stat(file_path)[6]
+                self._file_reserve = None
+                gc.collect()
+                f = open(file_path, "rb")
+                try:
+                    hdr = (
+                        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
+                        "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
+                    ).format(content_type, size)
+                    writer.write(hdr.encode("utf-8"))
+                    del hdr
+                    headers_sent = True
+                    await writer.drain()
+                    while True:
+                        n = f.readinto(buf)
+                        if not n:
+                            break
+                        writer.write(mv if n == 512 else mv[:n])
+                        await writer.drain()
+                finally:
+                    f.close()
+                    del f
+                    gc.collect()
+                    if self._file_reserve is None:
+                        try:
+                            self._file_reserve = bytearray(1168)
+                        except MemoryError:
+                            pass
         except Exception as e:
             print("[ARSE-WEB] Static load error:", e)
             if not headers_sent:
@@ -202,8 +255,7 @@ class TelemetryServer:
                 writer.write("Error loading UI: {}".format(e).encode("utf-8"))
                 await writer.drain()
         finally:
-            if use_shared:
-                self._html_busy = False
+            self._html_busy = False
             gc.collect()
 
     async def _send_html_file(self, writer):
@@ -303,6 +355,8 @@ class TelemetryServer:
             return {"ok": True, "lights": st}
 
         if path == "/api/audio":
+            if not getattr(app, "audio", None):
+                return {"ok": False, "error": "Audio disabled"}
             if "volume" in data and data["volume"] is not None:
                 app.audio.set_volume(data["volume"])
             snd = data.get("sound")
@@ -420,6 +474,7 @@ class TelemetryServer:
             b64 = data.pop("b64", "")
             if not isinstance(b64, str):
                 return {"ok": False, "error": "Invalid base64 payload"}
+            self.close_static_cache()
             gc.collect()
             raw = _binascii.a2b_base64(b64)
             del b64
@@ -558,6 +613,12 @@ class TelemetryServer:
         machine.reset()
 
     async def _handle_client(self, reader, writer):
+        while self._client_busy:
+            if hasattr(asyncio, "sleep_ms"):
+                await asyncio.sleep_ms(10)
+            else:
+                await asyncio.sleep(0.01)
+        self._client_busy = True
         try:
             req_line = await asyncio.wait_for(reader.readline(), 5)
             if not req_line:
@@ -718,11 +779,11 @@ class TelemetryServer:
         except Exception as e:
             print("[ARSE-WEB] Client error:", e)
         finally:
+            self._client_busy = False
             try:
                 writer.close()
                 await writer.wait_closed()
             except Exception:
                 pass
             self._req_count += 1
-            if (self._req_count & 7) == 0:
-                gc.collect()
+            gc.collect()

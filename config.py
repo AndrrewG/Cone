@@ -88,7 +88,7 @@ NAV_KP_YAW = 0.02               # Proportional yaw-hold gain (rad/s per deg erro
 # ------------------------------------------------------------------------------
 # Visual Warning Array & Acoustic Annunciator
 # ------------------------------------------------------------------------------
-NUM_LEDS = 50
+NUM_LEDS = 60
 LED_BRIGHTNESS = 0.4
 DEFAULT_AUDIO_VOLUME = 0.35
 

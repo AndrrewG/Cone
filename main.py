@@ -15,8 +15,8 @@ import gc
 import sys
 import time
 gc.collect()
-# Reserve contiguous DMA span before imports so ConeAudio I2S(ibuf=3072) never fragments
-_i2s_reserve = bytearray(3584)
+# Reserve contiguous LittleFS span before imports so UI FileIO(1148) never fragments
+_ui_reserve = bytearray(1200)
 
 
 class _StubMod:
@@ -85,9 +85,9 @@ from telemetry_server import TelemetryServer
 gc.collect()
 from drivers.navigator import WaypointNavigator
 gc.collect()
-from security import AuthManager
-gc.collect()
-from drivers.audio_sfx import ConeAudio
+# AuthManager & ConeAudio temporarily disabled for baseline stability bring-up
+# from security import AuthManager
+# from drivers.audio_sfx import ConeAudio
 gc.collect()
 from nav import PatternRunner
 gc.collect()
@@ -165,14 +165,8 @@ class ConeApp:
         self.motor_mod1.set_current_limit(config.MOTOR_CURRENT_LIMIT_AMPS)
         self.motor_mod2.set_current_limit(config.MOTOR_CURRENT_LIMIT_AMPS)
 
-        # Release reserved contiguous span right into ConeAudio's 3072 B I2S ring buffer (MAIN_EN still off)
-        globals().pop("_i2s_reserve", None)
-        gc.collect()
-        self.audio = ConeAudio(
-            self.audio_mod,
-            self.yukon,
-            default_volume=config.DEFAULT_AUDIO_VOLUME,
-        )
+        # Audio temporarily disabled for baseline stability bring-up
+        self.audio = None
         gc.collect()
 
         # Tare 0A ADC floor BEFORE enabling high-power bus so Coulomb integration is exact
@@ -303,12 +297,8 @@ class ConeApp:
             patterns=self.patterns,
         )
 
-        # Initialise operator authentication & session lockout manager
-        self.auth = AuthManager(
-            secrets_path="/flash/secrets.json",
-            voice_engine=self.audio,
-            led_controller=self.lights,
-        )
+        # Auth temporarily disabled for baseline stability bring-up
+        self.auth = None
         gc.collect()
 
         self.server = TelemetryServer(
@@ -316,6 +306,7 @@ class ConeApp:
             html_path="web/index.html",
             port=config.WEB_SERVER_PORT,
             auth_manager=self.auth,
+            file_reserve=globals().pop("_ui_reserve", None),
         )
 
         gc.collect()
@@ -344,7 +335,7 @@ class ConeApp:
             "battery": self.battery.get_status(),
             "drive": self.drive.get_status(),
             "lights": self.lights.get_status(),
-            "audio": self.audio.get_status(),
+            "audio": self.audio.get_status() if self.audio else {"playing": None, "volume": 0.0, "gain_db": None, "amp_enabled": False},
             "imu": self.imu_state,
             "gps": gps_st,
             "nav": self.nav.get_status(gps_st),
@@ -401,7 +392,8 @@ class ConeApp:
                         self.patterns.stop("Critical battery cutoff")
                     self.drive.estop()
                     self.lights.set_mode("off")
-                    self.audio.stop()
+                    if self.audio:
+                        self.audio.stop()
                     self.yukon.disable_main_output()
                     self.battery.save()
 
@@ -428,7 +420,7 @@ class ConeApp:
                                 self.lights.set_mode(led_cmd)
                             except Exception:
                                 pass
-                        if sfx and self.yukon.is_main_output_enabled():
+                        if sfx and self.audio and self.yukon.is_main_output_enabled():
                             try:
                                 self.audio.play(sfx)
                             except Exception:
@@ -465,7 +457,8 @@ class ConeApp:
             sub = tick % 5
             if sub == 0 or sub == 2:
                 self.lights.tick()
-                self.audio.tick()
+                if self.audio:
+                    self.audio.tick()
 
             if tick == 0:
                 if self.wifi:
@@ -489,11 +482,16 @@ class ConeApp:
         except KeyboardInterrupt:
             print("\n[ARSE] Executive halted by operator.")
         finally:
-            if self.server and self.server._server:
+            if self.server:
                 try:
-                    self.server._server.close()
+                    self.server.close_static_cache()
                 except Exception:
                     pass
+                if self.server._server:
+                    try:
+                        self.server._server.close()
+                    except Exception:
+                        pass
             if self.sentry and self.sentry.is_enabled():
                 self.sentry.disarm()
             if self.patterns and self.patterns.is_active():
